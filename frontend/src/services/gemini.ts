@@ -6,7 +6,7 @@ import { loadAiMemory } from './history';
 import { getTopQuestions, getCurationContext } from './aiKnowledge';
 import { getPlayerProfile, buildPersonalizationContext } from './playerPersonalization';
 import { getRecentInvalidQuestionFeedback } from './feedbackService';
-import { GoogleGenerativeAI } from '@google/generative-ai';
+
 
 export interface GameState {
   history: { question: string; answer: string }[];
@@ -355,8 +355,9 @@ export async function getNextQuestion(
   try {
     console.log('🔌 [DEBUG GEMINI] Enviando requisição para a IA com o SDK oficial...');
     
-    if (!process.env.EXPO_PUBLIC_GEMINI_API_KEY) {
-      throw new Error("API_KEY_UNDEFINED: A chave do Gemini não foi encontrada no arquivo .env");
+    const RENDER_URL = process.env.EXPO_PUBLIC_RENDER_API_URL || '';
+    if (!RENDER_URL) {
+      throw new Error("API_KEY_UNDEFINED: EXPO_PUBLIC_RENDER_API_URL não está configurada no .env");
     }
 
     const systemPrompt = `Você é o Resenhanator, gênio que adivinha personagens. Pergunta ${questionNumber}.
@@ -375,23 +376,26 @@ IMPORTANTE E CRÍTICO: NÃO INCLUA NENHUM TEXTO, SAUDAÇÃO OU EXPLICAÇÃO ANTE
 Para PERGUNTA: {"question":"[Sua pergunta de sim ou não]","reaction":"neutro|concentrado|confiante|desesperado|esnobe|inquieto|irritado|reflexivo","isGuess":false}
 Para CHUTE: {"question":"É [Nome]?","reaction":"confiante","isGuess":true,"character":"[Nome]"}`;
 
-    const genAI = new GoogleGenerativeAI(process.env.EXPO_PUBLIC_GEMINI_API_KEY);
-    
-    const model = genAI.getGenerativeModel({
-      model: "gemini-2.0-flash-lite",
-      systemInstruction: systemPrompt,
-      generationConfig: {
-        temperature: 0.15,
-        maxOutputTokens: 1024,
-      }
-    });
-
-    const userMessage = historyText 
+    const userMessage = historyText
       ? `Histórico de respostas recebidas:\n${historyText}\n\nGere a próxima ação para a rodada ${questionNumber} em JSON válido de acordo com as regras de consistência.`
       : 'Gere a primeira ação em JSON válido.';
 
-    const response = await model.generateContent(userMessage);
-    const raw = response.response.text() || '';
+    const httpResponse = await fetch(`${RENDER_URL}/api/gemini`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt: userMessage, systemInstruction: systemPrompt }),
+    });
+
+    if (!httpResponse.ok) {
+      const errBody = await httpResponse.text();
+      if (httpResponse.status === 429 || errBody.includes('quota') || errBody.includes('rate')) {
+        throw new Error('TOKEN_LIMIT_EXCEEDED');
+      }
+      throw new Error(`HTTP ${httpResponse.status}: ${errBody}`);
+    }
+
+    const data = await httpResponse.json();
+    const raw: string = data.text || '';
     
     console.log('🔌 [DEBUG GEMINI] Tamanho da resposta:', raw.length, 'chars');
     console.log('🔌 [DEBUG GEMINI] Resposta bruta:', raw);

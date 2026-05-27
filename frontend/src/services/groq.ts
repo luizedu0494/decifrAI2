@@ -436,21 +436,15 @@ export async function getNextQuestion(
 
   try {
     console.log('🔌 [DEBUG GROQ] Enviando requisição para a IA...');
-    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${process.env.EXPO_PUBLIC_GROQ_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: 'llama-3.3-70b-versatile',
-        temperature: 0.15,
-        max_tokens: 200,
-        response_format: { type: 'json_object' },
-        messages: [
-          {
-            role: 'system',
-            content:
+    const RENDER_URL = process.env.EXPO_PUBLIC_RENDER_API_URL || '';
+    if (!RENDER_URL) {
+      throw new Error("EXPO_PUBLIC_RENDER_API_URL não está configurada no .env");
+    }
+
+    const messages = [
+      {
+        role: 'system',
+        content:
 `Você é o Resenhanator, gênio que adivinha personagens. Pergunta ${questionNumber}.
 
 ${categoryCtx}${neverRepeatCtx}${playerProfileCtx}${invalidCtx}${feedbackCtx}${effectiveCtx}${askedCtx}${knownFactsCtx}${personalizationCtx}
@@ -465,34 +459,33 @@ ${alreadyGuessed.length > 0 ? `NÃO CHUTE: ${alreadyGuessed.join(', ')}.` : ''}
 Responda APENAS JSON:
 PERGUNTA: {"question":"[Sua pergunta de sim ou não]","reaction":"neutro|concentrado|confiante|desesperado|esnobe|inquieto|irritado|reflexivo","isGuess":false}
 CHUTE: {"question":"É [Nome]?","reaction":"confiante","isGuess":true,"character":"[Nome]"}`,
-          },
-          {
-            role: 'user',
-            content: historyText
-              ? `Histórico de respostas recebidas:\n${historyText}\n\nGere a próxima ação para a rodada ${questionNumber} em JSON válido de acordo com as regras de consistência.`
-              : 'Gere a primeira ação em JSON válido.',
-          },
-        ],
-      }),
+      },
+      {
+        role: 'user',
+        content: historyText
+          ? `Histórico de respostas recebidas:\n${historyText}\n\nGere a próxima ação para a rodada ${questionNumber} em JSON válido de acordo com as regras de consistência.`
+          : 'Gere a primeira ação em JSON válido.',
+      },
+    ];
+
+    const httpResponse = await fetch(`${RENDER_URL}/api/groq`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages, model: 'llama-3.3-70b-versatile' }),
     });
 
-    if (!response.ok) {
-      const errBody = await response.text();
-      console.error(`🔌 [DEBUG GROQ] Erro na API Groq (HTTP ${response.status}):`, errBody);
-      if (response.status === 429 || errBody.includes('token limit') || errBody.includes('rate limit')) {
+    if (!httpResponse.ok) {
+      const errBody = await httpResponse.text();
+      console.error(`🔌 [DEBUG GROQ] Erro no backend Render (HTTP ${httpResponse.status}):`, errBody);
+      if (httpResponse.status === 429 || errBody.includes('token limit') || errBody.includes('rate limit')) {
         throw new Error('TOKEN_LIMIT_EXCEEDED');
       } else {
-        throw new Error(`HTTP ${response.status}: ${errBody}`);
+        throw new Error(`HTTP ${httpResponse.status}: ${errBody}`);
       }
     }
 
-    const data = await response.json();
-    if (!data.choices || data.choices.length === 0) {
-      console.error('🔌 [DEBUG GROQ] Resposta da API vazia ou sem choices:', data);
-      throw new Error('Groq retornou choices vazio');
-    }
-
-    const raw = data.choices[0]?.message?.content || '';
+    const data = await httpResponse.json();
+    const raw: string = data.text || '';
     console.log('🔌 [DEBUG GROQ] Resposta bruta da Groq:', raw);
     
     const parsed = JSON.parse(raw.trim());
