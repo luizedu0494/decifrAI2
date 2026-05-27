@@ -29,6 +29,19 @@ export async function saveAIFeedback(feedback: AIFeedback): Promise<void> {
   if (error) throw error;
 }
 
+/** Atalho para registrar um chute errado da IA */
+export async function saveFeedbackWrongGuess(opts: {
+  character: string;
+  guessed: string;
+  history: { question: string; answer: string }[];
+}): Promise<void> {
+  await saveAIFeedback({
+    type: 'wrong_guess',
+    character: opts.character,
+    feedback: `IA chutou "${opts.guessed}" mas era "${opts.character}"`,
+  });
+}
+
 export async function getRecentInvalidQuestionFeedback(limitCount = 50): Promise<AIFeedback[]> {
   const { data, error } = await supabase
     .from('ai_feedback')
