@@ -53,7 +53,12 @@ app.post('/api/groq', async (req, res) => {
       messages,
       model: model || "llama-3.3-70b-versatile",
     });
-    res.json({ text: chatCompletion.choices[0].message.content });
+    let raw = chatCompletion.choices[0].message.content || '';
+    // Remove markdown code fences: ```json ... ``` ou ``` ... ```
+    raw = raw.replace(/```json\s*/gi, '').replace(/```\s*/g, '');
+    // Remove prefixos como "PERGUNTA: " ou "CHUTE: " antes do JSON
+    raw = raw.replace(/^(PERGUNTA|CHUTE):\s*/i, '');
+    res.json({ text: raw.trim() });
   } catch (error) {
     console.error('Erro Groq:', error);
     res.status(500).json({ error: error.message });
