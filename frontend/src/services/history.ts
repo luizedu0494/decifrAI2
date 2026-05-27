@@ -1,15 +1,17 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { auth } from './firebase';
+import { supabase } from './supabase';
 
 // Chave isolada por UID — troca de conta = histórico separado
-function historyKey(): string {
-  const uid = auth.currentUser?.uid ?? 'anonymous';
+async function historyKey(): Promise<string> {
+  const { data: { user } } = await supabase.auth.getUser();
+  const uid = user?.id ?? 'anonymous';
   return `resenhanator:history:${uid}`;
 }
 
 // Chave do banco de personagens da IA — também por UID
-function aiMemoryKey(): string {
-  const uid = auth.currentUser?.uid ?? 'anonymous';
+async function aiMemoryKey(): Promise<string> {
+  const { data: { user } } = await supabase.auth.getUser();
+  const uid = user?.id ?? 'anonymous';
   return `resenhanator:ai_memory:${uid}`;
 }
 
@@ -36,6 +38,7 @@ export interface AiMemoryEntry {
 // ─── Histórico do jogador ────────────────────────────────────────────────────
 
 export async function saveResult(entry: Omit<HistoryEntry, 'id' | 'date'>): Promise<HistoryEntry> {
+  const key = await historyKey();
   const current = await loadHistory();
   const newEntry: HistoryEntry = {
     ...entry,
@@ -43,7 +46,7 @@ export async function saveResult(entry: Omit<HistoryEntry, 'id' | 'date'>): Prom
     date: new Date().toISOString(),
   };
   const updated = [newEntry, ...current].slice(0, MAX_ITEMS);
-  await AsyncStorage.setItem(historyKey(), JSON.stringify(updated));
+  await AsyncStorage.setItem(key, JSON.stringify(updated));
 
   // Atualiza a memória da IA automaticamente
   await appendAiMemory({
@@ -56,11 +59,12 @@ export async function saveResult(entry: Omit<HistoryEntry, 'id' | 'date'>): Prom
 }
 
 export async function revealCharacter(id: string, revealedCharacter: string): Promise<void> {
+  const key = await historyKey();
   const current = await loadHistory();
   const updated = current.map(e =>
     e.id === id ? { ...e, revealedCharacter } : e
   );
-  await AsyncStorage.setItem(historyKey(), JSON.stringify(updated));
+  await AsyncStorage.setItem(key, JSON.stringify(updated));
 
   // Atualiza memória da IA com o personagem revelado
   await appendAiMemory({ character: revealedCharacter, wasGuessed: false, date: new Date().toISOString() });
@@ -68,7 +72,8 @@ export async function revealCharacter(id: string, revealedCharacter: string): Pr
 
 export async function loadHistory(): Promise<HistoryEntry[]> {
   try {
-    const raw = await AsyncStorage.getItem(historyKey());
+    const key = await historyKey();
+    const raw = await AsyncStorage.getItem(key);
     return raw ? JSON.parse(raw) : [];
   } catch {
     return [];
@@ -76,12 +81,14 @@ export async function loadHistory(): Promise<HistoryEntry[]> {
 }
 
 export async function clearHistory(): Promise<void> {
-  await AsyncStorage.removeItem(historyKey());
+  const key = await historyKey();
+  await AsyncStorage.removeItem(key);
 }
 
 // ─── Memória exclusiva da IA (Aprendizado) ───────────────────────────────────
 
 async function appendAiMemory(entry: AiMemoryEntry): Promise<void> {
+  const key = await aiMemoryKey();
   const current = await loadAiMemory();
   
   // Procura se o personagem já existe na memória da IA
@@ -100,19 +107,20 @@ async function appendAiMemory(entry: AiMemoryEntry): Promise<void> {
     current.splice(existingIndex, 1);
     current.unshift(existingEntry);
     
-    await AsyncStorage.setItem(aiMemoryKey(), JSON.stringify(current));
+    await AsyncStorage.setItem(key, JSON.stringify(current));
     return;
   }
 
   // Novo personagem: Adiciona com contador inicial de 1
   entry.count = 1;
   const updated = [entry, ...current].slice(0, MAX_MEMORY);
-  await AsyncStorage.setItem(aiMemoryKey(), JSON.stringify(updated));
+  await AsyncStorage.setItem(key, JSON.stringify(updated));
 }
 
 export async function loadAiMemory(): Promise<AiMemoryEntry[]> {
   try {
-    const raw = await AsyncStorage.getItem(aiMemoryKey());
+    const key = await aiMemoryKey();
+    const raw = await AsyncStorage.getItem(key);
     return raw ? JSON.parse(raw) : [];
   } catch {
     return [];
@@ -120,5 +128,6 @@ export async function loadAiMemory(): Promise<AiMemoryEntry[]> {
 }
 
 export async function clearAiMemory(): Promise<void> {
-  await AsyncStorage.removeItem(aiMemoryKey());
+  const key = await aiMemoryKey();
+  await AsyncStorage.removeItem(key);
 }

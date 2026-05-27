@@ -36,10 +36,13 @@ export default function Register() {
       await register(name, email, password);
       router.push('/home');
     } catch (err: any) {
-      if (err.code === 'auth/email-already-in-use') {
+      const msg: string = err?.message ?? '';
+      if (msg.includes('User already registered') || msg.includes('already been registered')) {
         setError('Este e-mail já está em uso.');
-      } else if (err.code === 'auth/invalid-email') {
+      } else if (msg.includes('invalid email') || msg.includes('Invalid email')) {
         setError('E-mail inválido.');
+      } else if (msg.includes('Password should be at least')) {
+        setError('A senha deve ter pelo menos 6 caracteres.');
       } else {
         setError('Erro ao criar conta. Tente novamente.');
       }

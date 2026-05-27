@@ -22,12 +22,14 @@ export default function ForgotPassword() {
     try {
       setLoading(true);
       await forgotPassword(email);
+      // Supabase não revela se o e-mail existe por segurança — sempre mostra sucesso
       setSent(true);
     } catch (err: any) {
-      if (err.code === 'auth/user-not-found') {
-        setError('Nenhuma conta encontrada com este e-mail.');
-      } else if (err.code === 'auth/invalid-email') {
+      const msg: string = err?.message ?? '';
+      if (msg.includes('invalid email') || msg.includes('Invalid email')) {
         setError('E-mail inválido.');
+      } else if (msg.includes('over_email_send_rate_limit') || msg.includes('Too many requests')) {
+        setError('Muitas tentativas. Tente novamente mais tarde.');
       } else {
         setError('Erro ao enviar e-mail. Tente novamente.');
       }
@@ -46,7 +48,7 @@ export default function ForgotPassword() {
         />
         <Text style={globalStyles.title}>E-mail enviado!</Text>
         <Text style={authStyles.sentText}>
-          Verifique sua caixa de entrada e siga as instruções para redefinir sua senha.
+          Se este e-mail estiver cadastrado, você receberá as instruções para redefinir sua senha.
         </Text>
         <TouchableOpacity
           style={globalStyles.button}

@@ -24,11 +24,14 @@ export default function Login() {
       await login(email, password);
       router.push('/home');
     } catch (err: any) {
-      if (err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
+      const msg: string = err?.message ?? '';
+      if (msg.includes('Invalid login credentials') || msg.includes('invalid_credentials')) {
         setError('E-mail ou senha incorretos.');
-      } else if (err.code === 'auth/invalid-email') {
+      } else if (msg.includes('invalid email') || msg.includes('Invalid email')) {
         setError('E-mail inválido.');
-      } else if (err.code === 'auth/too-many-requests') {
+      } else if (msg.includes('Email not confirmed')) {
+        setError('Confirme seu e-mail antes de entrar.');
+      } else if (msg.includes('Too many requests') || msg.includes('over_email_send_rate_limit')) {
         setError('Muitas tentativas. Tente novamente mais tarde.');
       } else {
         setError('Erro ao entrar. Tente novamente.');

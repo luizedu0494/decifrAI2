@@ -1,53 +1,62 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-// 1. Adicionamos a importação do signOut do firebase e renomeamos para não dar conflito
-import { onAuthStateChanged, User, signOut as firebaseSignOut } from 'firebase/auth';
-import { auth } from '../services/firebase';
+import { Session, User } from '@supabase/supabase-js';
+import { supabase } from '../services/supabase';
 import { router } from 'expo-router';
 
-// 2. Avisamos ao TypeScript que o signOut faz parte do Contexto
 interface AuthContextData {
   user: User | null;
+  session: Session | null;
   loading: boolean;
-  signOut: () => Promise<void>; 
+  signOut: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextData>({} as AuthContextData);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // 3. Criamos a função que vai chamar o logout do Firebase
   const signOut = async () => {
     try {
-      await firebaseSignOut(auth);
-      // Redireciona para login após logout
+      await supabase.auth.signOut();
       router.replace('/auth/login');
     } catch (error) {
-      console.error("Erro ao fazer logout:", error);
+      console.error('Erro ao fazer logout:', error);
       throw error;
     }
   };
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
-      setUser(firebaseUser);
+    // Carrega sessão inicial
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      setUser(session?.user ?? null);
       setLoading(false);
 
-      if (firebaseUser) {
+      if (session?.user) {
         router.replace('/home');
       }
-      // Quando não há usuário, não redireciona — deixa a splash e o onboarding
-      // fluírem normalmente pelo próprio timer do index.tsx
     });
 
-    return () => unsubscribe();
+    // Escuta mudanças de autenticação
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (_event, session) => {
+        setSession(session);
+        setUser(session?.user ?? null);
+        setLoading(false);
+
+        if (session?.user) {
+          router.replace('/home');
+        }
+      }
+    );
+
+    return () => subscription.unsubscribe();
   }, []);
 
   return (
-    // 4. Passamos o signOut aqui no value para o app inteiro poder usar
-    <AuthContext.Provider value={{ user, loading, signOut, debug: "OI" }}>
-
+    <AuthContext.Provider value={{ user, session, loading, signOut }}>
       {children}
     </AuthContext.Provider>
   );
