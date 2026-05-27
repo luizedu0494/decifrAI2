@@ -1,5 +1,6 @@
-// 1. Carrega as variáveis de ambiente ANTES de qualquer outra coisa
+// 1. Carrega as variáveis de ambiente do arquivo .env local
 require('dotenv').config();
+require('dotenv').config({ path: '../.env' });
 
 const express = require('express');
 const cors = require('cors');
@@ -10,21 +11,23 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Log de segurança para você validar no console do Render se as chaves foram lidas
-if (!process.env.GROQ_API_KEY) {
-  console.warn("AVISO: GROQ_API_KEY não foi detectada nas variáveis de ambiente!");
-}
-if (!process.env.GEMINI_API_KEY) {
-  console.warn("AVISO: GEMINI_API_KEY não foi detectada nas variáveis de ambiente!");
-}
+// 2. Busca as chaves aceitando o formato padrão ou com o prefixo EXPO_PUBLIC_
+const groqKey = process.env.GROQ_API_KEY || process.env.EXPO_PUBLIC_GROQ_API_KEY;
+const geminiKey = process.env.GEMINI_API_KEY || process.env.EXPO_PUBLIC_GEMINI_API_KEY;
 
-// Configuração das IAs
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || 'fake-key-para-nao-estourar-no-import');
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+// Log de segurança no console do Render para validação
+if (!groqKey) console.warn("AVISO: GROQ_API_KEY não foi detectada de nenhuma forma!");
+if (!geminiKey) console.warn("AVISO: GEMINI_API_KEY não foi detectada de nenhuma forma!");
+
+// Configuração das IAs (Injeta string provisória para o servidor não falhar no boot)
+const genAI = new GoogleGenerativeAI(geminiKey || "CHAVE_PROVISORIA");
+const groq = new Groq({ apiKey: groqKey || "CHAVE_PROVISORIA" });
 
 // Rota para Gemini
 app.post('/api/gemini', async (req, res) => {
   try {
+    if (!geminiKey) throw new Error("A chave GEMINI_API_KEY não está configurada no servidor.");
+    
     const { prompt, systemInstruction } = req.body;
     const model = genAI.getGenerativeModel({ 
       model: "gemini-1.5-flash",
@@ -43,6 +46,8 @@ app.post('/api/gemini', async (req, res) => {
 // Rota para Groq
 app.post('/api/groq', async (req, res) => {
   try {
+    if (!groqKey) throw new Error("A chave GROQ_API_KEY não está configurada no servidor.");
+
     const { messages, model } = req.body;
     const chatCompletion = await groq.chat.completions.create({
       messages,
@@ -59,4 +64,9 @@ app.post('/api/groq', async (req, res) => {
 app.get('/health', (req, res) => res.send('OK'));
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Servidor rodando na porta ${PORT}`));
+app.listen(PORT, () => {
+  console.log(`Servidor rodando perfeitamente na porta ${PORT}`);
+  if (groqKey && geminiKey) {
+    console.log("Todas as chaves de API foram carregadas com sucesso! 🚀");
+  }
+});
