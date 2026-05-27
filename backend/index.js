@@ -36,7 +36,9 @@ app.post('/api/gemini', async (req, res) => {
     
     const result = await model.generateContent(prompt);
     const response = await result.response;
-    res.json({ text: response.text() });
+    const geminiRaw = response.text() || '';
+    const geminiMatch = geminiRaw.match(/\{[\s\S]*\}/);
+    res.json({ text: geminiMatch ? geminiMatch[0] : geminiRaw });
   } catch (error) {
     console.error('Erro Gemini:', error);
     res.status(500).json({ error: error.message });
@@ -53,12 +55,14 @@ app.post('/api/groq', async (req, res) => {
       messages,
       model: model || "llama-3.3-70b-versatile",
     });
-    let raw = chatCompletion.choices[0].message.content || '';
-    // Remove markdown code fences: ```json ... ``` ou ``` ... ```
-    raw = raw.replace(/```json\s*/gi, '').replace(/```\s*/g, '');
-    // Remove prefixos como "PERGUNTA: " ou "CHUTE: " antes do JSON
-    raw = raw.replace(/^(PERGUNTA|CHUTE):\s*/i, '');
-    res.json({ text: raw.trim() });
+    const raw = chatCompletion.choices[0].message.content || '';
+    // Extrai o primeiro objeto JSON encontrado — ignora texto livre antes/depois
+    const jsonMatch = raw.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      console.error('Groq: nenhum JSON encontrado na resposta:', raw);
+      return res.status(500).json({ error: 'Resposta sem JSON valido' });
+    }
+    res.json({ text: jsonMatch[0] });
   } catch (error) {
     console.error('Erro Groq:', error);
     res.status(500).json({ error: error.message });

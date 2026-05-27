@@ -477,7 +477,14 @@ CHUTE: {"question":"É [Nome]?","reaction":"confiante","isGuess":true,"character
     if (!httpResponse.ok) {
       const errBody = await httpResponse.text();
       console.error(`🔌 [DEBUG GROQ] Erro no backend Render (HTTP ${httpResponse.status}):`, errBody);
-      if (httpResponse.status === 429 || errBody.includes('token limit') || errBody.includes('rate limit')) {
+      if (
+        httpResponse.status === 429 ||
+        errBody.includes('token limit') ||
+        errBody.includes('rate limit') ||
+        errBody.includes('rate_limit_exceeded') ||
+        errBody.includes('tokens per day') ||
+        errBody.includes('TPD')
+      ) {
         throw new Error('TOKEN_LIMIT_EXCEEDED');
       } else {
         throw new Error(`HTTP ${httpResponse.status}: ${errBody}`);
