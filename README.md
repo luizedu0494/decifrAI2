@@ -118,3 +118,4 @@ Feito por **Luiz Eduardo** — [github.com/luizedu0494](https://github.com/luize
 
 Este projeto foi desenvolvido com auxílio de ferramentas de Inteligência Artificial, utilizadas como suporte na criação de lógica, estruturação de código e documentação."# DecifrAI-SQL-" 
 "# DecifrAI-SQL-" 
+"# decifrAI2" 
