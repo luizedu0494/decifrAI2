@@ -1,6 +1,8 @@
+// 1. Carrega as variáveis de ambiente ANTES de qualquer outra coisa
+require('dotenv').config();
+
 const express = require('express');
 const cors = require('cors');
-require('dotenv').config();
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const Groq = require('groq-sdk');
 
@@ -8,8 +10,16 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// Log de segurança para você validar no console do Render se as chaves foram lidas
+if (!process.env.GROQ_API_KEY) {
+  console.warn("AVISO: GROQ_API_KEY não foi detectada nas variáveis de ambiente!");
+}
+if (!process.env.GEMINI_API_KEY) {
+  console.warn("AVISO: GEMINI_API_KEY não foi detectada nas variáveis de ambiente!");
+}
+
 // Configuração das IAs
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || 'fake-key-para-nao-estourar-no-import');
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
 // Rota para Gemini
