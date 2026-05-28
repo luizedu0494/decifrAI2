@@ -117,7 +117,7 @@ async function runCurationAgent(history, category, alreadyGuessed) {
       .from('characters')
       .select('id, display_name, category, times_thought, times_guessed, known_facts')
       .order('times_thought', { ascending: false })
-      .limit(40);
+      .limit(80);
 
     if (category) q = q.eq('category', category);
 
@@ -134,7 +134,7 @@ async function runCurationAgent(history, category, alreadyGuessed) {
       if (Object.keys(facts).length < 2) continue;
 
       const match = scoreCandidate({ displayName: row.display_name, knownFacts: facts }, valid);
-      if (match.contradictions === 0 && match.score > 0) candidates.push(match);
+      if (match.contradictions <= 1 && match.score > 0) candidates.push(match);
     }
 
     if (candidates.length === 0) return '';
@@ -371,36 +371,56 @@ ${effectiveCtx}
    ${hasLoopAlert ? '⛔ AGENTE 1 detectou loop — proibido continuar na mesma linha de perguntas.' : ''}
 
 ━━━ SAÍDA OBRIGATÓRIA ━━━
-Responda APENAS com JSON válido. Inclua o subpensamento como campo do JSON — isso garante que você processa a lógica antes de gerar a pergunta.
+Responda APENAS com JSON válido e compacto. Regras críticas de formatação:
+- NUNCA use aspas duplas dentro de strings — use aspas simples ou reescreva sem elas.
+- NUNCA insira quebras de linha reais dentro de strings — mantenha tudo em linha única.
+- Strings dos campos "amostral" e "antiloop": máximo 60 caracteres cada.
+- Campo "hipoteses": máximo 3 nomes, sem texto extra.
+- Campo "question" no chute: SEMPRE no formato exato "É [Nome]?" e o campo "character" DEVE ser EXATAMENTE o mesmo nome.
 
 Formato para PERGUNTA:
-{
-  "sub": {
-    "amostral": "universos/categorias ainda ativos",
-    "hipoteses": ["Nome1", "Nome2", "Nome3"],
-    "obviedade": 45,
-    "antiloop": "justificativa de que a pergunta é inédita"
-  },
-  "question": "pergunta curta e direta",
-  "reaction": "neutro|concentrado|confiante|desesperado|esnobe|inquieto|irritado|reflexivo",
-  "isGuess": false,
-  "character": null
-}
+{"sub":{"amostral":"categorias ativas (max 60 chars)","hipoteses":["Nome1","Nome2"],"obviedade":45,"antiloop":"razão curta (max 60 chars)"},"question":"pergunta direta sim/não","reaction":"neutro|concentrado|confiante|desesperado|esnobe|inquieto|irritado|reflexivo","isGuess":false,"character":null}
 
-Formato para CHUTE (quando obviedade >= 85 ou OVERRIDE):
-{
-  "sub": {"amostral":"...","hipoteses":["Nome"],"obviedade":92,"antiloop":"..."},
-  "question": "É [Nome]?",
-  "reaction": "confiante",
-  "isGuess": true,
-  "character": "[Nome]"
-}`
+Formato para CHUTE (obviedade >= 85 ou OVERRIDE ou comando Agente 1):
+{"sub":{"amostral":"categoria confirmada","hipoteses":["Nome"],"obviedade":92,"antiloop":"perfil único confirmado"},"question":"É [Nome]?","reaction":"confiante","isGuess":true,"character":"[Nome]"}
+
+ATENÇÃO: "question" e "character" no chute devem conter o MESMO nome.`
 
   const userMsg = historyText
     ? `Histórico recente:\n${historyText}\n\nGere a ação ${questionNumber} em JSON com o campo sub preenchido.`
     : 'Gere a primeira ação em JSON com o campo sub preenchido.';
 
   return { systemPrompt, userMsg };
+}
+
+// ─── Sanitiza e valida JSON da IA ────────────────────────────────────────────
+function safeParseAndSanitize(raw) {
+  try {
+    const parsed = JSON.parse(raw);
+    // Garante campos obrigatórios
+    if (typeof parsed.question !== 'string' || !parsed.question.trim()) return null;
+    if (typeof parsed.isGuess !== 'boolean') parsed.isGuess = false;
+    if (!parsed.reaction) parsed.reaction = 'neutro';
+    // Se é chute, garante que character == nome da question
+    if (parsed.isGuess) {
+      const match = parsed.question.match(/^[EÉ]\s+(.+?)\??$/i);
+      if (match && !parsed.character) parsed.character = match[1].trim();
+      if (!parsed.character) parsed.isGuess = false; // degrade para pergunta se não tem nome
+    } else {
+      parsed.character = null;
+    }
+    return parsed;
+  } catch {
+    // Tenta extrair JSON mesmo se truncado
+    try {
+      const match = raw.match(/\{[\s\S]*"question"\s*:\s*"([^"]+)"[\s\S]*\}/);
+      if (match) {
+        const partial = JSON.parse(match[0]);
+        if (partial.question) return safeParseAndSanitize(JSON.stringify(partial));
+      }
+    } catch {}
+    return null;
+  }
 }
 
 // ─── Rota principal: /api/next-question ───────────────────────────────────────
@@ -420,10 +440,11 @@ app.post('/api/next-question', async (req, res) => {
         });
         const result = await model.generateContent({
           contents: [{ role: 'user', parts: [{ text: userMsg }] }],
-          generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 400, temperature: 0.6 },
+          generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 512, temperature: 0.6 },
         });
         const raw    = result.response.text();
-        const parsed = JSON.parse(raw);
+        const parsed = safeParseAndSanitize(raw);
+        if (!parsed) throw new Error('JSON inválido ou truncado');
         geminiFailures.set(sessionId, 0);
         return res.json(parsed);
       } catch (err) {
@@ -448,11 +469,12 @@ app.post('/api/next-question', async (req, res) => {
             { role: 'user',   content: userMsg },
           ],
           temperature: 0.6,
-          max_tokens: 400,
+          max_tokens: 512,
           response_format: { type: 'json_object' },
         });
         const raw    = completion.choices[0]?.message?.content || '{}';
-        const parsed = JSON.parse(raw);
+        const parsed = safeParseAndSanitize(raw);
+        if (!parsed) throw new Error('JSON inválido ou truncado');
         return res.json(parsed);
       } catch (err) {
         const msg = String(err?.message || err);
@@ -484,11 +506,11 @@ app.post('/api/save-game', async (req, res) => {
   if (sessionId) geminiFailures.delete(sessionId);
 
   try {
-    await Promise.all([
+    const [, playerName] = await Promise.all([
       saveCharacterKnowledge(characterName, wasGuessed, history),
       updateRanking(userId, wasGuessed),
-      saveFeed(userId, characterName, wasGuessed, history.length),
     ]);
+    await saveFeed(userId, characterName, wasGuessed, history.length, playerName);
     res.json({ ok: true });
   } catch (err) {
     console.error('[/api/save-game]', err?.message);
@@ -529,23 +551,35 @@ async function saveCharacterKnowledge(characterName, wasGuessed, history) {
     await supabase.from('characters').insert({ id, display_name: characterName, category, times_thought: 1, times_guessed: wasGuessed ? 1 : 0, known_facts: facts });
   }
 
-  // question_stats
-  for (const h of history) {
-    const qId = slugify(h.question);
-    const { data: qs } = await supabase.from('question_stats').select('use_count, lead_to_guess').eq('id', qId).single();
-    if (qs) {
-      await supabase.from('question_stats').update({ use_count: qs.use_count + 1, lead_to_guess: qs.lead_to_guess + (wasGuessed ? 1 : 0), updated_at: new Date().toISOString() }).eq('id', qId);
-    } else {
-      await supabase.from('question_stats').insert({ id: qId, question: h.question, use_count: 1, lead_to_guess: wasGuessed ? 1 : 0 });
-    }
-  }
+  // question_stats — upsert em batch (1 query por partida, não N)
+  try {
+    const qIds = history.map(h => slugify(h.question));
+    const { data: existingStats } = await supabase
+      .from('question_stats')
+      .select('id, use_count, lead_to_guess')
+      .in('id', qIds);
+
+    const statsMap = new Map((existingStats || []).map(s => [s.id, s]));
+    const upserts = history.map(h => {
+      const qId = slugify(h.question);
+      const existing = statsMap.get(qId);
+      return {
+        id: qId,
+        question: h.question,
+        use_count:      (existing?.use_count     || 0) + 1,
+        lead_to_guess:  (existing?.lead_to_guess  || 0) + (wasGuessed ? 1 : 0),
+        updated_at: new Date().toISOString(),
+      };
+    });
+    await supabase.from('question_stats').upsert(upserts, { onConflict: 'id' });
+  } catch (e) { console.error('[question_stats]', e?.message); }
 }
 
 async function updateRanking(userId, won) {
   const { data: r } = await supabase.from('ranking').select('*').eq('uid', userId).single();
   if (!r) {
     await supabase.from('ranking').insert({ uid: userId, player_name: 'Jogador', wins: won ? 1 : 0, total: 1, win_rate: won ? 100 : 0, current_streak: won ? 1 : -1, best_streak: won ? 1 : 0 });
-    return;
+    return 'Jogador';
   }
   const wins    = r.wins + (won ? 1 : 0);
   const total   = r.total + 1;
@@ -554,11 +588,18 @@ async function updateRanking(userId, won) {
   streak        = won ? (streak >= 0 ? streak + 1 : 1) : (streak <= 0 ? streak - 1 : -1);
   const best    = Math.max(r.best_streak || 0, streak);
   await supabase.from('ranking').update({ wins, total, win_rate: winRate, current_streak: streak, best_streak: best, updated_at: new Date().toISOString() }).eq('uid', userId);
+  return r.player_name || 'Jogador';
 }
 
-async function saveFeed(userId, character, won, questions) {
-  const { data: user } = await supabase.from('users').select('name').eq('id', userId).maybeSingle();
-  await supabase.from('feed').insert({ uid: userId, player_name: user?.name || 'Jogador', character, won, questions });
+async function saveFeed(userId, character, won, questions, playerName) {
+  await supabase.from('feed').insert({
+    uid: userId,
+    player_name: playerName || 'Jogador',
+    character,
+    won,
+    questions,
+    created_at: new Date().toISOString(),
+  });
 }
 
 // ─── Rotas legacy (compatibilidade) ──────────────────────────────────────────
