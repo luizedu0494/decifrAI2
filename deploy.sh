@@ -1,15 +1,23 @@
 #!/bin/bash
 # ─── deploy.sh — commit + push + deploy Render com logs ao vivo ───────────────
-export $(grep -v "^#" .env | grep -v "^$" | xargs)
 # Uso: ./deploy.sh "mensagem do commit"
 # Ou:  ./deploy.sh              (usa mensagem automática com data/hora)
 
-set -e  # para tudo se der erro
+set -e
 
-# ── Configuração ──────────────────────────────────────────────────────────────
-# Coloca suas chaves aqui ou exporta antes de rodar o script:
-RENDER_API_KEY="${RENDER_API_KEY:rnd_ax54uHP1Qkx13up2qU7ZpuKwqU0C}"      # ex: rnd_XXXXXXXXXXXXXXXX
-RENDER_SERVICE_ID="${RENDER_SERVICE_ID:srv-d8bmnarbc2fs738hd0g0}" # ex: srv-XXXXXXXXXXXXXXXX
+# ── Carrega .env da raiz do projeto ───────────────────────────────────────────
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ENV_FILE="$SCRIPT_DIR/.env"
+
+if [ -f "$ENV_FILE" ]; then
+  export $(grep -v '^#' "$ENV_FILE" | grep -v '^$' | xargs)
+else
+  echo -e "\033[0;31m✗ ERRO:\033[0m Arquivo .env não encontrado em $SCRIPT_DIR"
+  echo "  Crie o arquivo .env com:"
+  echo "    RENDER_API_KEY=rnd_XXXXXXXXXXXXXXXX"
+  echo "    RENDER_SERVICE_ID=srv-XXXXXXXXXXXXXXXX"
+  exit 1
+fi
 
 # ── Cores ─────────────────────────────────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
@@ -21,8 +29,8 @@ warn() { echo -e "${YELLOW}⚠${RESET}  $1"; }
 err()  { echo -e "${RED}✗ ERRO:${RESET} $1"; exit 1; }
 
 # ── Valida configuração ───────────────────────────────────────────────────────
-[ -z "$RENDER_API_KEY" ]     && err "RENDER_API_KEY não definida. Edite o deploy.sh ou export RENDER_API_KEY=rnd_..."
-[ -z "$RENDER_SERVICE_ID" ]  && err "RENDER_SERVICE_ID não definida. Edite o deploy.sh ou export RENDER_SERVICE_ID=srv-..."
+[ -z "$RENDER_API_KEY" ]     && err "RENDER_API_KEY não encontrada no .env"
+[ -z "$RENDER_SERVICE_ID" ]  && err "RENDER_SERVICE_ID não encontrada no .env"
 
 # ── Mensagem do commit ────────────────────────────────────────────────────────
 COMMIT_MSG="${1:-deploy $(date '+%d/%m/%Y %H:%M')}"
@@ -38,9 +46,7 @@ log "Verificando alterações..."
 if git diff --quiet && git diff --cached --quiet; then
   warn "Nenhuma alteração detectada no git."
   warn "Forçando deploy sem novo commit..."
-  SKIP_COMMIT=true
 else
-  SKIP_COMMIT=false
   log "Adicionando arquivos..."
   git add -A
   ok "git add -A"
@@ -62,8 +68,7 @@ log "Disparando deploy no Render..."
 DEPLOY_RESPONSE=$(curl -s -X POST \
   "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys" \
   -H "Authorization: Bearer ${RENDER_API_KEY}" \
-  -H "Content-Type: application/json" \
-)
+  -H "Content-Type: application/json")
 
 DEPLOY_ID=$(echo "$DEPLOY_RESPONSE" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
 
@@ -89,40 +94,32 @@ while true; do
     -H "Authorization: Bearer ${RENDER_API_KEY}")
 
   STATUS=$(echo "$DEPLOY_INFO" | grep -o '"status":"[^"]*"' | head -1 | cut -d'"' -f4)
-  CREATED=$(echo "$DEPLOY_INFO" | grep -o '"createdAt":"[^"]*"' | head -1 | cut -d'"' -f4)
-  FINISHED=$(echo "$DEPLOY_INFO" | grep -o '"finishedAt":"[^"]*"' | head -1 | cut -d'"' -f4)
 
-  # Mostra status só quando muda
   if [ "$STATUS" != "$PREV_STATUS" ]; then
     case "$STATUS" in
-      "created")    echo -e "  ${YELLOW}●${RESET} Criado — aguardando worker..." ;;
-      "build_in_progress") echo -e "  ${YELLOW}●${RESET} Buildando..." ;;
-      "update_in_progress") echo -e "  ${YELLOW}●${RESET} Atualizando serviço..." ;;
-      "live")       echo -e "  ${GREEN}●${RESET} ${BOLD}Live!${RESET} Deploy concluído com sucesso." ;;
-      "deactivated") echo -e "  ${YELLOW}●${RESET} Desativado (deploy anterior substituído)" ;;
-      "canceled")   err "Deploy cancelado." ;;
+      "created")             echo -e "  ${YELLOW}●${RESET} Criado — aguardando worker..." ;;
+      "build_in_progress")   echo -e "  ${YELLOW}●${RESET} Buildando..." ;;
+      "update_in_progress")  echo -e "  ${YELLOW}●${RESET} Atualizando serviço..." ;;
+      "live")                echo -e "  ${GREEN}●${RESET} ${BOLD}Live!${RESET}" ;;
+      "deactivated")         echo -e "  ${YELLOW}●${RESET} Deploy anterior substituído" ;;
+      "canceled")            err "Deploy cancelado." ;;
       "failed")
         echo -e "  ${RED}●${RESET} ${BOLD}FALHOU!${RESET}"
-        echo ""
-        warn "Verifique os logs em: https://dashboard.render.com/web/${RENDER_SERVICE_ID}/logs"
-        exit 1
-        ;;
-      *) echo -e "  ${CYAN}●${RESET} Status: $STATUS" ;;
+        warn "Logs: https://dashboard.render.com/web/${RENDER_SERVICE_ID}/logs"
+        exit 1 ;;
+      *) echo -e "  ${CYAN}●${RESET} $STATUS" ;;
     esac
     PREV_STATUS="$STATUS"
   else
-    # Mostra progresso com pontinhos a cada 5s
     printf "."
   fi
 
-  # Termina se concluído
   if [ "$STATUS" = "live" ]; then
     echo ""
     echo ""
     echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
-    ok "${BOLD}Deploy finalizado com sucesso!${RESET}"
-    echo -e "  Serviço: https://dashboard.render.com/web/${RENDER_SERVICE_ID}"
-    echo -e "  Commit:  \"$COMMIT_MSG\""
+    ok "${BOLD}Deploy finalizado!${RESET}"
+    echo -e "  Commit: \"$COMMIT_MSG\""
     echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
     echo ""
     exit 0
@@ -130,11 +127,5 @@ while true; do
 
   sleep $INTERVAL
   ELAPSED=$((ELAPSED + INTERVAL))
-
-  # Timeout de 10 minutos
-  if [ $ELAPSED -ge 600 ]; then
-    warn "Timeout de 10 minutos atingido. Deploy pode ainda estar em progresso."
-    warn "Verifique: https://dashboard.render.com/web/${RENDER_SERVICE_ID}"
-    exit 1
-  fi
+  [ $ELAPSED -ge 600 ] && warn "Timeout de 10min. Verifique o Render." && exit 1
 done
