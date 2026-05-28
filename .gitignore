@@ -39,4 +39,4 @@ desktop.ini
 .vscode/
 .idea/
 *.swp
-*.swo
+*.swo.env~
