@@ -70,11 +70,27 @@ function runStrategyAgent(history, questionNumber) {
     lines.push('⚠️ AGENTE 1: Nacionalidade inconclusiva após ' + geoAsked.length + ' tentativas. Abandone geografia, foque em área/atuação.');
   }
 
-  const politicKeywords = ['presidente','governante','chefe de estado','primeiro-ministro','senador','deputado','ministro','prefeito','governador','vereador','político','cargo público','eleito'];
+  const politicKeywords = ['presidente','governante','chefe de estado','primeiro-ministro','senador','deputado','ministro','prefeito','governador','vereador','político','cargo público','eleito','governo federal','líder de partido'];
   const politicAsked = history.filter(h => politicKeywords.some(k => h.question.toLowerCase().includes(k)));
   const politicDenied = politicAsked.filter(h => h.answer === 'Não' || h.answer === 'Prov. não');
+  const politicUnclear = politicAsked.filter(h => h.answer === 'Não sei' || h.answer === 'Talvez');
   if (politicDenied.length >= 2) {
     lines.push('⛔ AGENTE 1: Loop político! Já negou ' + politicDenied.length + ' cargos políticos. Abandone política completamente. Mude de ângulo.');
+  } else if (politicAsked.length >= 4) {
+    lines.push('⛔ AGENTE 1: Muitas perguntas políticas (' + politicAsked.length + '). Já sabe que é político — CHUTE diretamente um nome específico.');
+  } else if (politicUnclear.length >= 1 && politicAsked.length >= 3) {
+    lines.push('⚠️ AGENTE 1: Resposta inconclusiva na linha política. Mude de ângulo — pergunte sobre região, partido ou CHUTE.');
+  }
+
+  // ── Detecção de pergunta repetida (semântica exata) ────────────────────────
+  const normalizedAsked = new Map();
+  for (const h of history) {
+    const key = h.question.toLowerCase().trim().replace(/\?+$/, '').replace(/[^\w\s]/g, '').trim();
+    if (normalizedAsked.has(key)) {
+      lines.push('🚨 AGENTE 1: PERGUNTA REPETIDA DETECTADA: "' + h.question + '" já foi feita antes! PROIBIDO repetir. Mude completamente.');
+      break;
+    }
+    normalizedAsked.set(key, true);
   }
 
   const musicGenres = ['rock','pop','sertanejo','funk','eletrônica','folk','clássica','jazz','gospel','pagode','reggae','mpb','trap','hip-hop','r&b','country','forró','axé','bossa nova','indie'];
@@ -101,6 +117,89 @@ function runStrategyAgent(history, questionNumber) {
   const totalConfirmed = confirmed.length;
   if (questionNumber >= 12 && totalConfirmed >= 3 && totalDenied >= totalConfirmed * 2) {
     lines.push('⚠️ AGENTE 1: Muitas negativas (' + totalDenied + ' não / ' + totalConfirmed + ' sim). Perfil suficiente — CHUTE com o que tem.');
+  }
+
+  // ── SISTEMA DE REDUNDÂNCIA SEMÂNTICA UNIVERSAL ─────────────────────────────
+  // Grupos semânticos: palavras que significam a mesma coisa em contextos diferentes
+  const semanticGroups = [
+    // Realidade
+    { label: 'real/fictício', words: ['pessoa real','personagem real','existe na vida real','fictício','imaginário','personagem de ficção','criado','inventado'] },
+    // Gênero
+    { label: 'gênero', words: ['homem','mulher','masculino','feminino','menino','menina','garoto','garota','rapaz','moça','cara','moça'] },
+    // Status vital (real)
+    { label: 'vivo/morto (real)', words: ['está vivo','ainda vive','faleceu','morreu','é falecido','está morto','já morreu','continua vivo'] },
+    // Status vital (fictício — dentro da obra)
+    { label: 'vivo/morto (ficção)', words: ['está vivo na obra','morreu na série','morreu no anime','morreu no jogo','foi morto','é morto no','sobrevive','continua vivo na'] },
+    // Nacionalidade / origem
+    { label: 'nacionalidade', words: ['brasileiro','americano','estadunidense','japonês','coreano','europeu','asiático','africano','argentino','mexicano','inglês','britânico','francês','alemão','espanhol','italiano','português','russo','chinês','indiano','australiano','canadense'] },
+    // Área de atuação (real)
+    { label: 'área de atuação', words: ['entretenimento','esporte','música','cinema','televisão','política','tecnologia','ciência','literatura','negócio','empresa','arte','internet','mídia'] },
+    // Cargo político (real e fictício)
+    { label: 'cargo político', words: ['presidente','governante','primeiro-ministro','senador','deputado','ministro','prefeito','governador','vereador','rei','rainha','imperador','chanceler','secretário','diplomata','cônsul','embaixador','líder','chefe de estado','cargo público','eleito','governo'] },
+    // Esporte específico
+    { label: 'modalidade esportiva', words: ['futebol','basquete','tênis','vôlei','natação','atletismo','boxe','mma','nfl','nba','fórmula 1','f1','ciclismo','golfe','rugby','ginástica','judô','karatê','wrestling','skate','surfe'] },
+    // Gênero musical
+    { label: 'gênero musical', words: ['rock','pop','sertanejo','funk','eletrônica','jazz','gospel','pagode','reggae','mpb','trap','hip-hop','r&b','country','forró','axé','bossa nova','indie','metal','punk','clássica','blues','soul','k-pop','j-pop'] },
+    // Mídia fictícia
+    { label: 'mídia/origem da obra', words: ['anime','mangá','cartoon','desenho animado','série','filme','novela','jogo','videogame','hq','quadrinho','livro','romance','light novel','webtoon','ova','filme animado','longa-metragem'] },
+    // Universo fictício
+    { label: 'universo/franquia', words: ['marvel','dc','disney','pixar','ghibli','naruto','one piece','dragon ball','attack on titan','demon slayer','star wars','harry potter','senhor dos anéis','game of thrones','the boys','breaking bad','stranger things','pokemon','zelda','mario','sonic','final fantasy','god of war'] },
+    // Tipo de personagem fictício
+    { label: 'tipo de personagem', words: ['herói','vilão','protagonista','antagonista','personagem secundário','anti-herói','mentor','sidekick','mascote'] },
+    // Poderes/habilidades
+    { label: 'poderes/habilidades', words: ['superforça','voa','invisível','magia','chakra','ki','quirk','fruta do diabo','espada','arma','escudo','armadura','poderes','habilidade especial','técnica'] },
+    // Afiliação/grupo (fictício e real)
+    { label: 'afiliação/grupo', words: ['time','clube','banda','grupo','organização','partido','facção','clã','guilda','tribo','nação','empresa','equipe'] },
+    // Aparência física
+    { label: 'aparência', words: ['cabelo','olhos','alto','baixo','gordo','magro','barba','bigode','cicatriz','tatuagem','máscara','óculos','uniforme','fantasia','traje'] },
+    // Época/tempo
+    { label: 'época', words: ['século','anos ','década','antigo','medieval','moderno','contemporâneo','futuro','passado','histórico','atual','hoje','recente'] },
+    // Faixa etária
+    { label: 'faixa etária', words: ['criança','adulto','idoso','jovem','adolescente','velho','novo','teen','anos de idade','mais de 30','menos de 30','mais de 50'] },
+    // Conquistas
+    { label: 'conquistas/prêmios', words: ['campeão','título','oscar','grammy','emmy','bafta','cannes','copa','mundial','olimpíada','medalha','prêmio','recordista','melhor','vencedor'] },
+    // Relacionamentos
+    { label: 'relacionamentos', words: ['casado','namorado','filhos','família','pai','mãe','irmão','parceiro','cônjuge','divorciado','solteiro','relacionamento'] },
+  ];
+
+  // Para cada grupo semântico, verifica se mais de 2 perguntas tocaram no mesmo tema
+  for (const group of semanticGroups) {
+    const groupAsked = history.filter(h => {
+      const q = h.question.toLowerCase();
+      return group.words.some(w => q.includes(w));
+    });
+    if (groupAsked.length >= 3) {
+      const alreadyConfirmed = groupAsked.some(h => h.answer === 'Sim' || h.answer === 'Prov. sim');
+      const allDenied = groupAsked.every(h => h.answer === 'Não' || h.answer === 'Prov. não');
+      if (alreadyConfirmed && groupAsked.length >= 2) {
+        lines.push('⛔ SEM. REDUND: Tema "' + group.label + '" já foi CONFIRMADO. Proibido fazer mais perguntas sobre esse tema — aprofunde em outro ângulo ou CHUTE.');
+      } else if (allDenied && groupAsked.length >= 2) {
+        lines.push('⛔ SEM. REDUND: Tema "' + group.label + '" foi completamente negado (' + groupAsked.length + 'x). Abandone esse tema definitivamente.');
+      } else if (groupAsked.length >= 3) {
+        lines.push('⚠️ SEM. REDUND: Tema "' + group.label + '" foi perguntado ' + groupAsked.length + 'x sem conclusão. Mude de ângulo completamente.');
+      }
+      break; // reporta só o mais grave por vez para não poluir o prompt
+    }
+  }
+
+  // Detecta perguntas que são reformulações semânticas de perguntas anteriores confirmadas
+  // Ex: "É político?" (Sim) → "É um político atual?" = redundante
+  for (const h of history) {
+    const q = h.question.toLowerCase();
+    if (h.answer !== 'Sim' && h.answer !== 'Prov. sim') continue;
+    // Encontra perguntas posteriores que repetem o mesmo tema confirmado
+    const laterIdx = history.indexOf(h);
+    for (let i = laterIdx + 1; i < history.length; i++) {
+      const later = history[i].question.toLowerCase();
+      // Verifica se a pergunta posterior contém as mesmas palavras-chave da confirmada
+      const confirmedWords = q.replace(/[?!.]/g, '').split(' ').filter(w => w.length > 4);
+      const matchCount = confirmedWords.filter(w => later.includes(w)).length;
+      if (matchCount >= 2 && confirmedWords.length >= 2) {
+        lines.push('⛔ SEM. REDUND: "' + history[i].question + '" é reformulação de "' + h.question + '" (já confirmada). NUNCA reformule perguntas já respondidas com "Sim".');
+        break;
+      }
+    }
+    if (lines.some(l => l.includes('SEM. REDUND: "' + h.question))) break;
   }
 
   return lines.length > 0 ? '\n\n' + lines.join('\n') : '';
@@ -361,6 +460,7 @@ ${effectiveCtx}
 
 4. VALIDAÇÃO ANTI-LOOP:
    - A pergunta que vou fazer já foi feita antes? Se sim, DESCARTE e pense em outra.
+   - Uma categoria **confirmada** também bloqueia variações dela. Se "É um político?" = Sim, NUNCA pergunte "É um político atual?" ou "É político de carreira?" — já sabe que é político, aprofunde direto no cargo/nome.
    - Uma categoria negada bloqueia TODOS os seus subtópicos. Se negou "músico" → proibido perguntar gênero musical, instrumento, gravadora, álbum.
    - Se o Agente 1 disparou alerta de loop → MUDE DE ÂNGULO COMPLETAMENTE.
 
