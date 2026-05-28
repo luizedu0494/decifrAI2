@@ -1,5 +1,6 @@
 #!/bin/bash
 # ─── deploy.sh — commit + push + deploy Render com logs ao vivo ───────────────
+export $(grep -v "^#" .env | grep -v "^$" | xargs)
 # Uso: ./deploy.sh "mensagem do commit"
 # Ou:  ./deploy.sh              (usa mensagem automática com data/hora)
 
