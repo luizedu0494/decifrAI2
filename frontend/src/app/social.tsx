@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   View, Text, TouchableOpacity, ScrollView,
   ActivityIndicator, RefreshControl,
@@ -6,7 +6,7 @@ import {
 import { router, useFocusEffect } from 'expo-router';
 import { colors } from '../styles/global';
 import { socialStyles as s } from '../styles/social';
-import { loadFeed, loadRanking, FeedEntry, RankEntry } from '../services/social';
+import { loadFeed, loadRanking, subscribeFeed, FeedEntry, RankEntry } from '../services/social';
 import { useAuth } from '../contexts/AuthContext';
 
 type Tab = 'feed' | 'ranking';
@@ -26,13 +26,30 @@ const MEDALS = ['🥇', '🥈', '🥉'];
 
 export default function Social() {
   const { user } = useAuth();
-  const [tab, setTab]           = useState<Tab>('feed');
-  const [feed, setFeed]         = useState<FeedEntry[]>([]);
-  const [ranking, setRanking]   = useState<RankEntry[]>([]);
-  const [loading, setLoading]   = useState(true);
+  const [tab, setTab]            = useState<Tab>('feed');
+  const [feed, setFeed]          = useState<FeedEntry[]>([]);
+  const [ranking, setRanking]    = useState<RankEntry[]>([]);
+  const [loading, setLoading]    = useState(true);
   const [refreshing, setRefresh] = useState(false);
+  const [newCount, setNewCount]  = useState(0); // badge de novos no feed
 
-  useFocusEffect(useCallback(() => { loadData(); }, []));
+  useFocusEffect(useCallback(() => {
+    loadData();
+  }, []));
+
+  // ── Realtime — escuta inserções no feed ──────────────────────────────────────
+  useEffect(() => {
+    const unsubscribe = subscribeFeed((entry) => {
+      setFeed(prev => [entry, ...prev]);
+      if (tab !== 'feed') setNewCount(n => n + 1); // badge quando não está na aba
+    });
+    return unsubscribe;
+  }, [tab]);
+
+  // Zera badge ao entrar na aba feed
+  useEffect(() => {
+    if (tab === 'feed') setNewCount(0);
+  }, [tab]);
 
   async function loadData(isRefresh = false) {
     isRefresh ? setRefresh(true) : setLoading(true);
@@ -60,7 +77,9 @@ export default function Social() {
           style={[s.tab, tab === 'feed' && s.tabActive]}
           onPress={() => setTab('feed')}
         >
-          <Text style={[s.tabText, tab === 'feed' && s.tabTextActive]}>🕐 Ao vivo</Text>
+          <Text style={[s.tabText, tab === 'feed' && s.tabTextActive]}>
+            🔴 Ao vivo{newCount > 0 && tab !== 'feed' ? ` (${newCount})` : ''}
+          </Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={[s.tab, tab === 'ranking' && s.tabActive]}
@@ -94,7 +113,6 @@ export default function Social() {
             ) : (
               feed.map(entry => (
                 <View key={entry.id} style={s.feedCard}>
-                  {/* Avatar inicial */}
                   <View style={[s.feedAvatar, entry.won ? s.feedAvatarWon : s.feedAvatarLost]}>
                     <Text style={s.feedAvatarText}>
                       {entry.playerName.charAt(0).toUpperCase()}
@@ -104,9 +122,7 @@ export default function Social() {
                   <View style={s.feedInfo}>
                     <Text style={s.feedPlayer}>
                       <Text style={s.feedPlayerBold}>{entry.playerName}</Text>
-                      {entry.won
-                        ? ` pensou em `
-                        : ` enganou o gênio com `}
+                      {entry.won ? ` pensou em ` : ` enganou o gênio com `}
                       <Text style={s.feedCharacter}>{entry.character}</Text>
                     </Text>
                     <Text style={s.feedMeta}>
@@ -146,6 +162,7 @@ export default function Social() {
                     </Text>
                     <Text style={s.rankMeta}>
                       {entry.wins} vitórias · {entry.total} partidas
+                      {entry.currentStreak > 1 ? ` · 🔥${entry.currentStreak}` : ''}
                     </Text>
                   </View>
 
