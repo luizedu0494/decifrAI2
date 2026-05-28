@@ -29,6 +29,24 @@ export async function saveAIFeedback(feedback: AIFeedback): Promise<void> {
   if (error) throw error;
 }
 
+/** Atalho para registrar uma pergunta inválida reportada pelo jogador */
+export async function saveFeedbackInvalidQuestion(opts: {
+  question: string;
+  category?: string;
+  gameHistory?: { question: string; answer: string }[];
+  aiReaction?: string;
+  userRating?: number;
+  userComment?: string;
+}): Promise<void> {
+  await saveAIFeedback({
+    type: 'invalid_question',
+    question: opts.question,
+    character: opts.category,
+    feedback: opts.userComment,
+    rating: opts.userRating,
+  });
+}
+
 /** Atalho para registrar um chute errado da IA */
 export async function saveFeedbackWrongGuess(opts: {
   character: string;

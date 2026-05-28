@@ -6,7 +6,7 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
-    "scheme": "resenhanator",
+    "scheme": "decifrai",
     "experiments": {
       "typedRoutes": true
     },
@@ -20,7 +20,7 @@
       "supportsTablet": true
     },
     "android": {
-      "package": "com.luiz.resenhanator",
+      "package": "com.luiz.decifrai",
       "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",

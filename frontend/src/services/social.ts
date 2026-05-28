@@ -24,26 +24,9 @@ export async function publishResult(opts: {
   won: boolean;
   questions: number;
 }): Promise<void> {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return;
-
-  const playerName = user.user_metadata?.display_name || 'Jogador anônimo';
-
-  // 1. Inserir no Feed
-  const { error: feedError } = await supabase
-    .from('feed')
-    .insert([{
-      uid: user.id,
-      player_name: playerName,
-      character: opts.character,
-      won: opts.won,
-      questions: opts.questions
-    }]);
-
-  if (feedError) console.error('Erro ao publicar feed:', feedError);
-
-  // 2. Atualizar Ranking
-  await updateRankStats(user.id, playerName, opts.won);
+  // Feed e ranking são gerenciados pelo backend via /api/save-game
+  // Esta função existe apenas para compatibilidade — não faz mais chamadas duplicadas
+  return;
 }
 
 export async function loadFeed(limitCount = 20): Promise<FeedEntry[]> {
