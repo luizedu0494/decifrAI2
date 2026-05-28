@@ -32,46 +32,80 @@ const GEMINI_SKIP = 2;
 // ─── AGENTE 1: Estratégia ─────────────────────────────────────────────────────
 function runStrategyAgent(history, questionNumber) {
   const lines = [];
+  const all = history.map(h => h.question.toLowerCase());
   const confirmed = history
     .filter(h => h.answer === 'Sim' || h.answer === 'Prov. sim')
     .map(h => h.question.toLowerCase());
+  const denied = history
+    .filter(h => h.answer === 'Não' || h.answer === 'Prov. não')
+    .map(h => h.question.toLowerCase());
 
   const topics = {
-    categoria:     confirmed.some(q => q.includes('pessoa real') || q.includes('fictício') || q.includes('anime') || q.includes('cartoon') || q.includes('marvel') || q.includes('dc') || q.includes('videogame')),
-    genero:        confirmed.some(q => q.includes('masculino') || q.includes('feminino') || q.includes('homem') || q.includes('mulher')),
-    nacionalidade: confirmed.some(q => q.includes('brasileiro') || q.includes('americano') || q.includes('europeu') || q.includes('continente') || q.includes('américa do sul') || q.includes('fronteira') || q.includes('asiátic') || q.includes('african') || q.includes('sul-american')),
-    area:          confirmed.some(q => q.includes('esporte') || q.includes('música') || q.includes('ator') || q.includes('apresentador') || q.includes('político') || q.includes('futebol') || q.includes('basquete') || q.includes('atleta') || q.includes('cantor')),
-    subarea:       confirmed.some(q => q.includes('nba') || q.includes('nfl') || q.includes('rapper') || q.includes('sertanejo') || q.includes('chefe de estado') || q.includes('governante') || q.includes('presidente') || q.includes('rock') || q.includes('pop')),
-    conquista:     confirmed.some(q => q.includes('mvp') || q.includes('título') || q.includes('campeão') || q.includes('oscar') || q.includes('grammy')),
+    categoria:     all.some(q => q.includes('pessoa real') || q.includes('fictício') || q.includes('anime') || q.includes('cartoon') || q.includes('marvel') || q.includes('dc') || q.includes('videogame')),
+    genero:        all.some(q => q.includes('homem') || q.includes('mulher') || q.includes('masculin') || q.includes('feminin')),
+    nacionalidade: all.some(q => q.includes('brasileiro') || q.includes('estadunidense') || q.includes('americano') || q.includes('europeu') || q.includes('asiátic') || q.includes('african') || q.includes('inglês') || q.includes('britânic') || q.includes('japonês') || q.includes('coreano') || q.includes('argentino') || q.includes('mexicano')),
+    vivo:          all.some(q => q.includes('vivo') || q.includes('falecido') || q.includes('morto')),
+    area:          all.some(q => q.includes('entretenimento') || q.includes('esporte') || q.includes('música') || q.includes('cinema') || q.includes('televisão') || q.includes('política') || q.includes('tecnologia') || q.includes('ciência') || q.includes('literatura') || q.includes('negócio') || q.includes('empresa')),
+    subarea:       all.some(q => q.includes('futebol') || q.includes('basquete') || q.includes('tênis') || q.includes('nba') || q.includes('nfl') || q.includes('rapper') || q.includes('sertanejo') || q.includes('rock') || q.includes('pop') || q.includes('funk') || q.includes('ator') || q.includes('atriz') || q.includes('apresentador') || q.includes('youtuber') || q.includes('presidente') || q.includes('governante')),
+    conquista:     all.some(q => q.includes('mvp') || q.includes('título') || q.includes('campeão') || q.includes('oscar') || q.includes('grammy') || q.includes('prêmio') || q.includes('mundial')),
   };
   const topicCount = Object.values(topics).filter(Boolean).length;
 
   if (topicCount >= 5 && questionNumber >= 8)  lines.push('🎯 AGENTE 1: Perfil completo (5+ dimensões). CHUTE AGORA.');
   else if (topicCount >= 4 && questionNumber >= 10) lines.push('🎯 AGENTE 1: Perfil bem definido. Máx 1 pergunta extra, depois CHUTE.');
 
-  // Loop numérico
-  const num = history.filter(h => /mais de (um|dois|três|quatro|cinco|seis|\d+)/i.test(h.question));
+  const subareaKeywords = ['música','cinema','televisão','teatro','dança','comédia','esporte','jogos','literatura','arte','youtube','streaming','podcast','rádio','moda','gastronomia','stand-up'];
+  const subareaAsked = history.filter(h => subareaKeywords.some(k => h.question.toLowerCase().includes(k)) && (h.question.toLowerCase().includes('subárea') || h.question.toLowerCase().includes('área')));
+  const subareaDeniedsInRow = subareaAsked.filter(h => h.answer === 'Não' || h.answer === 'Prov. não');
+  if (subareaDeniedsInRow.length >= 3) {
+    lines.push('⛔ AGENTE 1: Loop de subárea! ' + subareaDeniedsInRow.length + ' subáreas negadas. PARE de perguntar subárea. Mude para: faixa etária, época de fama, país específico, ou CHUTE.');
+  }
+
+  const geoKeywords = ['europeu','asiático','africano','oceania','latino','sul-american','norte-american','caribenho','canadense','australiano','francês','alemão','espanhol','italiano','português','russo','chinês','indiano','paquistanês','nigeriano','egípcio','turco','iraniano'];
+  const geoAsked = history.filter(h => geoKeywords.some(g => h.question.toLowerCase().includes(g)));
+  const geoDenied = geoAsked.filter(h => h.answer === 'Não' || h.answer === 'Prov. não');
+  if (geoDenied.length >= 3) {
+    lines.push('⛔ AGENTE 1: Loop geográfico! ' + geoDenied.length + ' nacionalidades negadas. Já mapeou bastante. CHUTE ou mude para área de atuação.');
+  } else if (geoAsked.length >= 2 && !topics.nacionalidade) {
+    lines.push('⚠️ AGENTE 1: Nacionalidade inconclusiva após ' + geoAsked.length + ' tentativas. Abandone geografia, foque em área/atuação.');
+  }
+
+  const politicKeywords = ['presidente','governante','chefe de estado','primeiro-ministro','senador','deputado','ministro','prefeito','governador','vereador','político','cargo público','eleito'];
+  const politicAsked = history.filter(h => politicKeywords.some(k => h.question.toLowerCase().includes(k)));
+  const politicDenied = politicAsked.filter(h => h.answer === 'Não' || h.answer === 'Prov. não');
+  if (politicDenied.length >= 2) {
+    lines.push('⛔ AGENTE 1: Loop político! Já negou ' + politicDenied.length + ' cargos políticos. Abandone política completamente. Mude de ângulo.');
+  }
+
+  const musicGenres = ['rock','pop','sertanejo','funk','eletrônica','folk','clássica','jazz','gospel','pagode','reggae','mpb','trap','hip-hop','r&b','country','forró','axé','bossa nova','indie'];
+  const musicAsked = history.filter(h => musicGenres.some(g => h.question.toLowerCase().includes(g)));
+  const musicDenied = musicAsked.filter(h => h.answer === 'Não' || h.answer === 'Prov. não');
+  if (musicDenied.length >= 3) {
+    lines.push('⛔ AGENTE 1: Loop de gênero musical! ' + musicDenied.length + ' gêneros negados. CHUTE o músico agora sem precisar saber o gênero exato.');
+  }
+
+  const sportKeywords = ['futebol','basquete','tênis','vôlei','natação','atletismo','boxe','mma','nfl','nba','mlb','nhl','fórmula 1','f1','ciclismo','golfe','rugby','handball','ginástica'];
+  const sportAsked = history.filter(h => sportKeywords.some(k => h.question.toLowerCase().includes(k)));
+  const sportDenied = sportAsked.filter(h => h.answer === 'Não' || h.answer === 'Prov. não');
+  if (sportDenied.length >= 3) {
+    lines.push('⛔ AGENTE 1: Loop esportivo! ' + sportDenied.length + ' esportes negados. CHUTE o atleta ou mude completamente de ângulo.');
+  }
+
+  const num = history.filter(h => /mais de (um|dois|três|quatro|cinco|seis|d+)/i.test(h.question));
   if (num.length >= 2) lines.push('⛔ AGENTE 1: Loop numérico. CHUTE agora!');
 
-  // Loop geográfico
-  const geo = ['europei','asiátic','african','oceania','américa do sul','américa do norte'];
-  const geoAsked = history.filter(h => geo.some(g => h.question.toLowerCase().includes(g)));
-  if (geoAsked.length >= 2) lines.push('⛔ AGENTE 1: Loop geográfico. CHUTE agora!');
-
-  // Loop de perguntas compostas
   const composite = history.filter(h => h.question.length > 80);
-  if (composite.length >= 2) lines.push('⛔ AGENTE 1: Perguntas compostas demais. CHUTE!');
+  if (composite.length >= 2) lines.push('⛔ AGENTE 1: Perguntas longas demais. Seja direto e CHUTE!');
 
-  // Loop de gênero musical
-  const musicGenres = ['rock','pop','sertanejo','funk','eletrônica','folk','clássica','jazz','gospel','pagode','reggae','mpb'];
-  const musicAsked = history.filter(h =>
-    musicGenres.some(g => h.question.toLowerCase().includes(g)) &&
-    (h.question.toLowerCase().includes('cantor') || h.question.toLowerCase().includes('música') || h.question.toLowerCase().includes('artista'))
-  );
-  if (musicAsked.length >= 3) lines.push('⛔ AGENTE 1: Loop de gênero musical. CHUTE o cantor!');
+  const totalDenied = denied.length;
+  const totalConfirmed = confirmed.length;
+  if (questionNumber >= 12 && totalConfirmed >= 3 && totalDenied >= totalConfirmed * 2) {
+    lines.push('⚠️ AGENTE 1: Muitas negativas (' + totalDenied + ' não / ' + totalConfirmed + ' sim). Perfil suficiente — CHUTE com o que tem.');
+  }
 
   return lines.length > 0 ? '\n\n' + lines.join('\n') : '';
 }
+
 
 // ─── AGENTE 2: Curadoria ──────────────────────────────────────────────────────
 async function runCurationAgent(history, category, alreadyGuessed) {
@@ -245,9 +279,23 @@ async function buildFullPrompt(history, userId, invalidQuestions, sessionId) {
     ? '\n🚨 PERGUNTAS RECUSADAS:\n' + invalidQuestions.map(q => `- "${q}"`).join('\n') + '\nNUNCA repita esse estilo.'
     : '';
 
-  const askedCtx = history.length > 0
-    ? '\n🚫 PROIBIDAS (já feitas):\n' + history.filter(h => h.answer !== '__INVALIDA__').map(h => `"${h.question}"`).join(', ')
+  // Comprime histórico para evitar TOKEN_LIMIT_EXCEEDED
+  const validHistory = history.filter(h => h.answer !== '__INVALIDA__');
+  const recentHistory = validHistory.slice(-6);
+  const olderHistory  = validHistory.slice(0, -6);
+
+  // Perguntas antigas viram resumo compacto (ex: "estadunidense✓ | homem✓ | vivo✓")
+  const olderSummary = olderHistory.length > 0
+    ? '\n📋 Anteriores: ' + olderHistory.map(h => {
+        const short = h.question.replace(/^(É|Está|Tem|Atua|Faz|Foi|Possui|Ser) /i, '').replace(/\?$/, '').slice(0, 25);
+        const ans = h.answer === 'Sim' ? '✓' : h.answer === 'Não' ? '✗' : '~';
+        return `${short}${ans}`;
+      }).join(' | ')
     : '';
+
+  const askedCtx = recentHistory.length > 0
+    ? olderSummary + '\n🚫 PROIBIDAS (recentes): ' + recentHistory.map(h => `"${h.question}"`).join(', ')
+    : olderSummary;
 
   const urgency = isForceGuess
     ? '🚨 LIMITE MÁXIMO. CHUTE OBRIGATÓRIO AGORA (isGuess:true).'
@@ -256,27 +304,101 @@ async function buildFullPrompt(history, userId, invalidQuestions, sessionId) {
     : questionNumber > 8  ? 'Prepare o chute.'
     : 'Mapeie e aprofunde.';
 
-  const historyText = history
-    .filter(h => h.answer !== '__INVALIDA__')
-    .map((h, i) => `${i + 1}. "${h.question}" → ${h.answer}`)
+  // Histórico na user message: só as últimas 8 respostas
+  const historyText = recentHistory
+    .map((h, i) => `${olderHistory.length + i + 1}. "${h.question}" → ${h.answer}`)
     .join('\n');
 
+  // Índice de obviedade calculado pelos agentes
+  const hasOverride    = curationCtx.includes('OVERRIDE') || curationCtx.includes('🚨');
+  const hasLoopAlert   = strategyCtx.includes('⛔');
+  const hasGuessNow    = strategyCtx.includes('CHUTE AGORA');
+
+  // Histórico compacto para o subpensamento
+  const compactFacts = validHistory.map(h => {
+    const short = h.question.replace(/^(É|Está|Tem|Atua|Faz|Foi|Possui|Ser) /i, '').replace(/\?$/, '').slice(0, 30);
+    const ans = h.answer === 'Sim' ? '✓' : h.answer === 'Não' ? '✗' : h.answer === 'Prov. sim' ? '~✓' : h.answer === 'Prov. não' ? '~✗' : '?';
+    return short + ans;
+  }).join(' | ') || '(nenhuma ainda)';
+
   const systemPrompt =
-`Você é o DecifrAI, gênio que adivinha personagens. Pergunta ${questionNumber}.
+`Você é o Motor de Inferência do DecifrAI — Sistema Especialista em dedução de personagens integrado a agentes de IA e banco de dados em tempo real.
 
-${categoryCtx}${invalidCtx}${effectiveCtx}${askedCtx}${strategyCtx}${curationCtx}${personalizationCtx}
+━━━ DADOS DOS AGENTES (TURNO ${questionNumber}/20) ━━━
 
-CONTEXTO: Ano ${new Date().getFullYear()}. Nunca contradiga o histórico. Busque NOVAS informações.
-${alreadyGuessed.length > 0 ? `NÃO CHUTE: ${alreadyGuessed.join(', ')}.` : ''}
-${urgency}
+[AGENTE 1 — Loops e Estratégia]
+${strategyCtx || '✅ Sem alertas de loop. Continue mapeando.'}
 
-Responda APENAS JSON:
-PERGUNTA: {"question":"[Pergunta sim/não]","reaction":"neutro|concentrado|confiante|desesperado|esnobe|inquieto|irritado|reflexivo","isGuess":false}
-CHUTE: {"question":"É [Nome]?","reaction":"confiante","isGuess":true,"character":"[Nome]"}`;
+[AGENTE 2 — Candidatos do Banco]
+${curationCtx || '⏳ Dados insuficientes ainda. Continue coletando fatos.'}
+
+[AGENTE 3 — Perfil do Jogador]
+${personalizationCtx || '(jogador novo — sem dados de dificuldade)'}
+
+━━━ ESTADO DA PARTIDA ━━━
+
+Categoria: ${category === 'real' ? '✅ PESSOA REAL' : category === 'ficticio' ? '✅ FICTÍCIO' : '❓ Desconhecida — pergunte "É uma pessoa real?" primeiro'}
+Fatos mapeados: ${compactFacts}
+${askedCtx ? 'Perguntas recentes (PROIBIDO repetir): ' + recentHistory.map(h => '"' + h.question + '"').join(', ') : ''}
+${alreadyGuessed.length > 0 ? 'Chutes errados (NUNCA repita): ' + alreadyGuessed.join(', ') : ''}
+${invalidCtx}
+${effectiveCtx}
+
+━━━ PROTOCOLO DE SUBPENSAMENTO (execute mentalmente antes de responder) ━━━
+
+1. ESPAÇO AMOSTRAL: Quais categorias/universos ainda estão ativos com base nos fatos mapeados?
+   Universos possíveis:
+   FICTÍCIO → Anime/Mangá (shonen/seinen/shojo/isekai) | Cartoon (Disney/CN/Nick/Pixar/DreamWorks) | Filme/Série (Marvel/DC/StarWars/Netflix/HBO/Amazon/Apple) | Jogo (RPG/FPS/luta/plataforma/indie/mobile) | HQ/Literatura/Mitologia
+   REAL → Político/Histórico (presidente/rei/militar/ativista, vivo ou morto) | Entretenimento (ator/músico/youtuber/streamer/atleta/influencer/apresentador) | Ciência/Tecnologia/Empresário
+
+2. HIPÓTESES FORTES: Quais 2-4 personagens encaixam perfeitamente nos fatos? Priorize candidatos do Agente 2.
+
+3. ÍNDICE DE OBVIEDADE (0-100%):
+   - Agente 2 marcou OVERRIDE → 100% → CHUTE IMEDIATAMENTE
+   - 1 personagem único encaixa em todos os fatos → ≥90% → CHUTE
+   - Característica exclusiva confirmada (ex: "lidera país real hoje", "usa escudo de vibranium", "criou a Microsoft") → 100% → CHUTE SEM MAIS PERGUNTAS
+   - ≥85%: chute agora. <85%: escolha pergunta que elimina ~50% das hipóteses.
+
+4. VALIDAÇÃO ANTI-LOOP:
+   - A pergunta que vou fazer já foi feita antes? Se sim, DESCARTE e pense em outra.
+   - Uma categoria negada bloqueia TODOS os seus subtópicos. Se negou "músico" → proibido perguntar gênero musical, instrumento, gravadora, álbum.
+   - Se o Agente 1 disparou alerta de loop → MUDE DE ÂNGULO COMPLETAMENTE.
+
+5. DIRETRIZ DE URGÊNCIA:
+   ${urgency}
+   ${hasOverride  ? '🚨 AGENTE 2 sinalizou OVERRIDE — CHUTE AGORA (isGuess:true).' : ''}
+   ${hasGuessNow  ? '🎯 AGENTE 1 decretou perfil completo — altere isGuess para true imediatamente.' : ''}
+   ${hasLoopAlert ? '⛔ AGENTE 1 detectou loop — proibido continuar na mesma linha de perguntas.' : ''}
+
+━━━ SAÍDA OBRIGATÓRIA ━━━
+Responda APENAS com JSON válido. Inclua o subpensamento como campo do JSON — isso garante que você processa a lógica antes de gerar a pergunta.
+
+Formato para PERGUNTA:
+{
+  "sub": {
+    "amostral": "universos/categorias ainda ativos",
+    "hipoteses": ["Nome1", "Nome2", "Nome3"],
+    "obviedade": 45,
+    "antiloop": "justificativa de que a pergunta é inédita"
+  },
+  "question": "pergunta curta e direta",
+  "reaction": "neutro|concentrado|confiante|desesperado|esnobe|inquieto|irritado|reflexivo",
+  "isGuess": false,
+  "character": null
+}
+
+Formato para CHUTE (quando obviedade >= 85 ou OVERRIDE):
+{
+  "sub": {"amostral":"...","hipoteses":["Nome"],"obviedade":92,"antiloop":"..."},
+  "question": "É [Nome]?",
+  "reaction": "confiante",
+  "isGuess": true,
+  "character": "[Nome]"
+}`
 
   const userMsg = historyText
-    ? `Histórico:\n${historyText}\n\nGere a ação ${questionNumber} em JSON.`
-    : 'Gere a primeira ação em JSON.';
+    ? `Histórico recente:\n${historyText}\n\nGere a ação ${questionNumber} em JSON com o campo sub preenchido.`
+    : 'Gere a primeira ação em JSON com o campo sub preenchido.';
 
   return { systemPrompt, userMsg };
 }
@@ -298,7 +420,7 @@ app.post('/api/next-question', async (req, res) => {
         });
         const result = await model.generateContent({
           contents: [{ role: 'user', parts: [{ text: userMsg }] }],
-          generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 200, temperature: 0.7 },
+          generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 400, temperature: 0.6 },
         });
         const raw    = result.response.text();
         const parsed = JSON.parse(raw);
@@ -325,8 +447,8 @@ app.post('/api/next-question', async (req, res) => {
             { role: 'system', content: systemPrompt },
             { role: 'user',   content: userMsg },
           ],
-          temperature: 0.7,
-          max_tokens: 200,
+          temperature: 0.6,
+          max_tokens: 400,
           response_format: { type: 'json_object' },
         });
         const raw    = completion.choices[0]?.message?.content || '{}';
