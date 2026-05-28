@@ -4,21 +4,16 @@ import {
   ScrollView, ActivityIndicator, Alert, Platform, Keyboard,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
-import * as FileSystem from 'expo-file-system';
 import { router, useFocusEffect } from 'expo-router';
 import { useAuth } from '../contexts/AuthContext';
-import { loadProfile, saveProfile, UserProfile } from '../services/profile';
-import { loadHistory } from '../services/history';
+import { loadProfile, saveProfile, uploadProfilePhoto, loadProfileStats, UserProfile } from '../services/profile';
 import { colors } from '../styles/global';
 import { profileStyles as s } from '../styles/profile';
 
 export default function Profile() {
-  // Pegamos a função signOut do AuthContext
-  const authData = useAuth();
-  console.log("🕵️ RAIO-X DO CONTEXTO:", authData);
   const { user, signOut } = useAuth();
 
-  const [profile, setProfile]       = useState<UserProfile>({ name: '', bio: '', photoBase64: null });
+  const [profile, setProfile]       = useState<UserProfile>({ name: '', bio: '', photoBase64: null, avatarUrl: null });
   const [loading, setLoading]       = useState(true);
   const [saving, setSaving]         = useState(false);
   const [editingName, setEditName]  = useState(false);
@@ -26,9 +21,10 @@ export default function Profile() {
   const [name, setName]             = useState('');
   const [bio, setBio]               = useState('');
 
-  // Stats
+  // Stats do Supabase ranking
   const [wins, setWins]             = useState(0);
   const [losses, setLosses]         = useState(0);
+  const [winRate, setWinRate]       = useState(0);
   const [bestStreak, setBestStreak] = useState(0);
   const [avgQuestions, setAvgQ]     = useState(0);
 
@@ -36,46 +32,33 @@ export default function Profile() {
 
   async function init() {
     setLoading(true);
-    const [prof, hist] = await Promise.all([loadProfile(), loadHistory()]);
+    const uid = user?.id || user?.uid;
+
+    const [prof, stats] = await Promise.all([
+      loadProfile(),
+      uid ? loadProfileStats(uid) : Promise.resolve({ wins: 0, total: 0, winRate: 0, bestStreak: 0, streak: 0 }),
+    ]);
 
     setProfile(prof);
-    setName(prof.name || user?.displayName || '');
+    setName(prof.name || '');
     setBio(prof.bio || '');
 
-    const w = hist.filter(h => h.won).length;
-    const l = hist.filter(h => !h.won).length;
-    setWins(w);
-    setLosses(l);
+    setWins(stats.wins);
+    setLosses(stats.total - stats.wins);
+    setWinRate(stats.winRate);
+    setBestStreak(stats.bestStreak);
 
-    let streak = 0, best = 0;
-    for (const h of [...hist].reverse()) { // do mais antigo pro mais recente
-      if (h.won) { streak++; best = Math.max(best, streak); }
-      else streak = 0;
-    }
-    setBestStreak(best);
-
-    const wonGames = hist.filter(h => h.won);
-    if (wonGames.length > 0) {
-      setAvgQ(Math.round(wonGames.reduce((acc, h) => acc + h.questions, 0) / wonGames.length));
-    }
-
+    // Média de perguntas: busca do histórico local como fallback
+    setAvgQ(0);
     setLoading(false);
   }
 
   async function pickImage() {
-    if (Platform.OS === 'ios') {
-      Alert.alert('Foto de perfil', 'Escolha uma opção', [
-        { text: 'Cancelar', style: 'cancel' },
-        { text: '📷  Tirar foto',        onPress: () => launchPicker('camera')  },
-        { text: '🖼️  Escolher da galeria', onPress: () => launchPicker('library') },
-      ]);
-    } else {
-      Alert.alert('Foto de perfil', 'Escolha uma opção', [
-        { text: 'Cancelar', style: 'cancel' },
-        { text: 'Tirar foto',         onPress: () => launchPicker('camera')  },
-        { text: 'Escolher da galeria', onPress: () => launchPicker('library') },
-      ]);
-    }
+    Alert.alert('Foto de perfil', 'Escolha uma opção', [
+      { text: 'Cancelar', style: 'cancel' },
+      { text: Platform.OS === 'ios' ? '📷  Tirar foto' : 'Tirar foto',          onPress: () => launchPicker('camera')  },
+      { text: Platform.OS === 'ios' ? '🖼️  Escolher da galeria' : 'Da galeria', onPress: () => launchPicker('library') },
+    ]);
   }
 
   async function launchPicker(source: 'camera' | 'library') {
@@ -89,16 +72,22 @@ export default function Profile() {
     }
 
     const result = source === 'camera'
-      ? await ImagePicker.launchCameraAsync({ allowsEditing: true, aspect: [1, 1], quality: 0.5 })
-      : await ImagePicker.launchImageLibraryAsync({ allowsEditing: true, aspect: [1, 1], quality: 0.5 });
+      ? await ImagePicker.launchCameraAsync({ allowsEditing: true, aspect: [1, 1], quality: 0.6 })
+      : await ImagePicker.launchImageLibraryAsync({ allowsEditing: true, aspect: [1, 1], quality: 0.6 });
 
     if (result.canceled || !result.assets[0]) return;
 
     setSaving(true);
     try {
-      const base64 = await FileSystem.readAsStringAsync(result.assets[0].uri, { encoding: 'base64' });
-      await saveProfile({ photoBase64: base64 });
-      setProfile(p => ({ ...p, photoBase64: base64 }));
+      const uid = user?.id || user?.uid;
+      if (!uid) throw new Error('Usuário não autenticado');
+
+      const url = await uploadProfilePhoto(uid, result.assets[0].uri);
+      if (url) {
+        setProfile(p => ({ ...p, avatarUrl: url }));
+      } else {
+        Alert.alert('Erro', 'Não foi possível fazer upload da foto.');
+      }
     } catch {
       Alert.alert('Erro', 'Não foi possível salvar a foto.');
     } finally {
@@ -121,23 +110,16 @@ export default function Profile() {
     Keyboard.dismiss();
   }
 
-  // Lógica de deslogar simplificada
   function handleLogout() {
     Alert.alert('Sair da conta', 'Tem certeza que deseja sair?', [
       { text: 'Cancelar', style: 'cancel' },
-      { 
-        text: 'Sair', 
+      {
+        text: 'Sair',
         style: 'destructive',
         onPress: async () => {
-          try {
-            // Chama a função do contexto.
-            // A mágica do redirecionamento vai acontecer sozinha lá no AuthContext!
-            await signOut(); 
-          } catch (error) {
-            console.error(error);
-            Alert.alert('Erro', 'Não foi possível sair da conta.');
-          }
-        }
+          try { await signOut(); }
+          catch { Alert.alert('Erro', 'Não foi possível sair da conta.'); }
+        },
       },
     ]);
   }
@@ -150,9 +132,8 @@ export default function Profile() {
     );
   }
 
-  const photoUri = profile.photoBase64 ? `data:image/jpeg;base64,${profile.photoBase64}` : null;
-  const winRate  = (wins + losses) > 0 ? Math.round((wins / (wins + losses)) * 100) : 0;
   const displayName = profile.name || user?.displayName || 'Jogador';
+  const photoUri    = profile.avatarUrl || null;
 
   return (
     <ScrollView
@@ -160,7 +141,7 @@ export default function Profile() {
       showsVerticalScrollIndicator={false}
       keyboardShouldPersistTaps="handled"
     >
-      {/* Botão voltar */}
+      {/* Header */}
       <View style={s.header}>
         <TouchableOpacity style={s.backBtn} onPress={() => router.back()}>
           <Text style={s.backBtnText}>← Voltar</Text>
@@ -236,17 +217,16 @@ export default function Profile() {
         </TouchableOpacity>
       )}
 
-      {/* Grid de estatísticas */}
+      {/* Grid de estatísticas do Supabase */}
       <View style={s.statsGrid}>
         <StatCard label="Vitórias"        value={String(wins)}      accent="#2ecc71" />
         <StatCard label="Derrotas"        value={String(losses)}    accent="#e74c3c" />
         <StatCard label="Taxa de acerto"  value={`${winRate}%`}     accent={colors.primary} />
         <StatCard label="Melhor seq."     value={String(bestStreak)} accent="#f39c12" />
-        <StatCard label="Média perguntas" value={avgQuestions > 0 ? String(avgQuestions) : '—'} accent="#3498db" />
         <StatCard label="Total partidas"  value={String(wins + losses)} accent={colors.gray} />
       </View>
 
-      {/* Botão de Logout */}
+      {/* Logout */}
       <TouchableOpacity style={s.logoutBtn} onPress={handleLogout} activeOpacity={0.8}>
         <Text style={s.logoutBtnText}>Sair da conta</Text>
       </TouchableOpacity>
