@@ -1,56 +1,102 @@
+/**
+ * history.ts — DecifrAI
+ * Histórico do jogador armazenado no Supabase (tabela feed).
+ * AiMemory permanece no AsyncStorage (é local por design).
+ */
+
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from './supabase';
 
-// Chave isolada por UID — troca de conta = histórico separado
-async function historyKey(): Promise<string> {
-  const { data: { user } } = await supabase.auth.getUser();
-  const uid = user?.id ?? 'anonymous';
-  return `resenhanator:history:${uid}`;
-}
+// ─── AiMemory (local — não migrado) ──────────────────────────────────────────
 
-// Chave do banco de personagens da IA — também por UID
 async function aiMemoryKey(): Promise<string> {
   const { data: { user } } = await supabase.auth.getUser();
-  const uid = user?.id ?? 'anonymous';
-  return `resenhanator:ai_memory:${uid}`;
+  return `decifrai:ai_memory:${user?.id ?? 'anonymous'}`;
 }
 
-const MAX_ITEMS  = 30;
-const MAX_MEMORY = 100; // IA lembra dos últimos 100 personagens
-
-export interface HistoryEntry {
-  id: string;
-  character: string;
-  revealedCharacter?: string;
-  won: boolean;
-  questions: number;
-  date: string;
-}
+const MAX_MEMORY = 100;
 
 export interface AiMemoryEntry {
-  character: string;       // personagem que o jogador pensou
-  wasGuessed: boolean;     // IA acertou?
-  category?: string;       // 'real' | 'ficticio' — preenchido pelo jogo futuramente
-  date: string;
-  count?: number;          // Quantas vezes esse personagem já foi jogado (Popularidade)
+  character:  string;
+  wasGuessed: boolean;
+  category?:  string;
+  date:       string;
+  count?:     number;
 }
 
-// ─── Histórico do jogador ────────────────────────────────────────────────────
+export async function loadAiMemory(): Promise<AiMemoryEntry[]> {
+  try {
+    const key = await aiMemoryKey();
+    const raw = await AsyncStorage.getItem(key);
+    return raw ? JSON.parse(raw) : [];
+  } catch { return []; }
+}
 
-export async function saveResult(entry: Omit<HistoryEntry, 'id' | 'date'>): Promise<HistoryEntry> {
-  const key = await historyKey();
-  const current = await loadHistory();
+export async function appendAiMemory(entry: AiMemoryEntry): Promise<void> {
+  const key     = await aiMemoryKey();
+  const current = await loadAiMemory();
+  const idx     = current.findIndex(e => e.character.toLowerCase() === entry.character.toLowerCase());
+
+  if (idx >= 0) {
+    current[idx].count = (current[idx].count || 1) + 1;
+    current[idx].date  = entry.date;
+    current[idx].wasGuessed = entry.wasGuessed;
+    const updated = [current.splice(idx, 1)[0], ...current];
+    await AsyncStorage.setItem(key, JSON.stringify(updated));
+  } else {
+    entry.count = 1;
+    const updated = [entry, ...current].slice(0, MAX_MEMORY);
+    await AsyncStorage.setItem(key, JSON.stringify(updated));
+  }
+}
+
+export async function clearAiMemory(): Promise<void> {
+  const key = await aiMemoryKey();
+  await AsyncStorage.removeItem(key);
+}
+
+// ─── Histórico do jogador (Supabase) ─────────────────────────────────────────
+
+export interface HistoryEntry {
+  id:                string;
+  character:         string;
+  revealedCharacter?: string;
+  won:               boolean;
+  questions:         number;
+  date:              string;
+}
+
+export async function saveResult(
+  entry: Omit<HistoryEntry, 'id' | 'date'>
+): Promise<HistoryEntry> {
+  const { data: { user } } = await supabase.auth.getUser();
+
   const newEntry: HistoryEntry = {
     ...entry,
-    id: Date.now().toString(),
+    id:   Date.now().toString(),
     date: new Date().toISOString(),
   };
-  const updated = [newEntry, ...current].slice(0, MAX_ITEMS);
-  await AsyncStorage.setItem(key, JSON.stringify(updated));
 
-  // Atualiza a memória da IA automaticamente
+  // Salva no Supabase
+  if (user) {
+    const { data: userData } = await supabase
+      .from('users')
+      .select('name')
+      .eq('id', user.id)
+      .single();
+
+    await supabase.from('feed').insert({
+      uid:         user.id,
+      player_name: userData?.name || user.user_metadata?.display_name || 'Jogador',
+      character:   entry.character,
+      won:         entry.won,
+      questions:   entry.questions,
+    });
+  }
+
+  // Atualiza memória local da IA
   await appendAiMemory({
-    character:  entry.won ? entry.character : (entry.revealedCharacter ?? entry.character),
+    character:  entry.character,
     wasGuessed: entry.won,
     date:       newEntry.date,
   });
@@ -59,75 +105,38 @@ export async function saveResult(entry: Omit<HistoryEntry, 'id' | 'date'>): Prom
 }
 
 export async function revealCharacter(id: string, revealedCharacter: string): Promise<void> {
-  const key = await historyKey();
-  const current = await loadHistory();
-  const updated = current.map(e =>
-    e.id === id ? { ...e, revealedCharacter } : e
-  );
-  await AsyncStorage.setItem(key, JSON.stringify(updated));
-
-  // Atualiza memória da IA com o personagem revelado
-  await appendAiMemory({ character: revealedCharacter, wasGuessed: false, date: new Date().toISOString() });
+  // Só atualiza memória da IA com o personagem real
+  await appendAiMemory({
+    character:  revealedCharacter,
+    wasGuessed: false,
+    date:       new Date().toISOString(),
+  });
 }
 
 export async function loadHistory(): Promise<HistoryEntry[]> {
-  try {
-    const key = await historyKey();
-    const raw = await AsyncStorage.getItem(key);
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return [];
+
+  const { data, error } = await supabase
+    .from('feed')
+    .select('*')
+    .eq('uid', user.id)
+    .order('created_at', { ascending: false })
+    .limit(30);
+
+  if (error || !data) return [];
+
+  return data.map(item => ({
+    id:        item.id,
+    character: item.character,
+    won:       item.won,
+    questions: item.questions,
+    date:      item.created_at,
+  }));
 }
 
 export async function clearHistory(): Promise<void> {
-  const key = await historyKey();
-  await AsyncStorage.removeItem(key);
-}
-
-// ─── Memória exclusiva da IA (Aprendizado) ───────────────────────────────────
-
-async function appendAiMemory(entry: AiMemoryEntry): Promise<void> {
-  const key = await aiMemoryKey();
-  const current = await loadAiMemory();
-  
-  // Procura se o personagem já existe na memória da IA
-  const existingIndex = current.findIndex(
-    e => e.character.toLowerCase() === entry.character.toLowerCase()
-  );
-
-  if (existingIndex >= 0) {
-    // Personagem já existe: Atualiza popularidade e dados
-    const existingEntry = current[existingIndex];
-    existingEntry.count = (existingEntry.count || 1) + 1;
-    existingEntry.date = entry.date;
-    existingEntry.wasGuessed = entry.wasGuessed;
-
-    // Move para o topo da lista (mais recente)
-    current.splice(existingIndex, 1);
-    current.unshift(existingEntry);
-    
-    await AsyncStorage.setItem(key, JSON.stringify(current));
-    return;
-  }
-
-  // Novo personagem: Adiciona com contador inicial de 1
-  entry.count = 1;
-  const updated = [entry, ...current].slice(0, MAX_MEMORY);
-  await AsyncStorage.setItem(key, JSON.stringify(updated));
-}
-
-export async function loadAiMemory(): Promise<AiMemoryEntry[]> {
-  try {
-    const key = await aiMemoryKey();
-    const raw = await AsyncStorage.getItem(key);
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
-}
-
-export async function clearAiMemory(): Promise<void> {
-  const key = await aiMemoryKey();
-  await AsyncStorage.removeItem(key);
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return;
+  await supabase.from('feed').delete().eq('uid', user.id);
 }

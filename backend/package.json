@@ -1,7 +1,7 @@
 {
-  "name": "resenhanator-api",
+  "name": "decifrai-backend",
   "version": "1.0.0",
-  "description": "Backend para o Resenhanator hospedado no Render",
+  "description": "Backend do DecifrAI — agentes de IA + Groq/Gemini + Supabase",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
@@ -9,10 +9,11 @@
   },
   "dependencies": {
     "@google/generative-ai": "^0.21.0",
+    "@supabase/supabase-js": "^2.49.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
-    "groq-sdk": "^0.3.3"
+    "groq-sdk": "^0.9.1"
   },
   "devDependencies": {
     "nodemon": "^3.1.0"

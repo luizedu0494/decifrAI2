@@ -1,121 +1,87 @@
-# DecifrAI 🧞
+# DecifrAI — Guia de Migração
 
-> Eu sei quem você está pensando...
+## O que mudou
 
-**DecifrAI** é um jogo de adivinhação onde uma IA tenta descobrir em qual personagem — real ou fictício — você está pensando. Através de perguntas de sim/não/talvez, o gênio vai afunilando as possibilidades até revelar quem é.
+### Backend (`/backend/index.js`)
+O backend agora processa os **3 agentes de IA** (Estratégia, Curadoria, Personalização) e monta o prompt completo antes de chamar o Groq/Gemini. Também faz retry automático quando o Groq atinge rate limit.
 
----
+**Nova rota:** `POST /api/next-question`
+- Recebe: `{ history, userId, sessionId, invalidQuestions }`
+- Processa os 3 agentes + busca Supabase
+- Chama Gemini → Groq com fallback automático
+- Retorna: `{ question, reaction, isGuess, character }`
 
-## 🚀 Tecnologias
+**Nova rota:** `POST /api/save-game`
+- Recebe: `{ characterName, wasGuessed, history, userId, sessionId }`
+- Salva em `characters`, `question_stats`, `ranking`, `feed`
 
-- **React Native** — desenvolvimento mobile multiplataforma
-- **Formik + Yup** — gerenciamento e validação de formulários
-- **Navegação por telas** — fluxo completo de autenticação e jogo
+### Frontend (`/frontend/src/services/`)
+- `groq.ts` — simplificado, só chama o backend
+- `gemini.ts` — pode ser **deletado** (o backend faz o fallback)
+- `ai.ts` — simplificado, passa userId e sessionId para o backend
+- `history.ts` — migrado para Supabase (tabela `feed`)
+- `aiKnowledge.ts` — pode ser **deletado** (o backend gerencia)
+- `playerPersonalization.ts` — pode ser **deletado** (o backend gerencia)
 
----
+## Passos para aplicar
 
-## 📱 Telas
+### 1. Supabase — rodar a migration
+Abra o SQL Editor no dashboard do Supabase e execute o arquivo `supabase_migration.sql`.
 
-### Onboarding
-
-Apresentação do jogo em três slides antes do login.
-
-<p align="center">
-  <img src="assets/slide1.png" width="30%" />
-  <img src="assets/slide2.png" width="30%" />
-  <img src="assets/slide3.png" width="30%" />
-</p>
-
----
-
-### Autenticação
-
-Fluxo de login, cadastro e recuperação de senha com validação em tempo real.
-
-<p align="center">
-  <img src="assets/login.png" width="30%" />
-  <img src="assets/cadastro.png" width="30%" />
-  <img src="assets/esqueceusenha.png" width="30%" />
-</p>
-
----
-
-### Home
-
-Tela principal com acesso rápido ao jogo, estatísticas e últimas partidas.
-
-<p align="center">
-  <img src="assets/home.png" width="45%" />
-</p>
-
----
-
-### Jogo
-
-O gênio faz perguntas e o jogador responde com: Sim, Não, Talvez, Não sei, Provavelmente sim ou Provavelmente não. Quando os tokens acabam, o gênio revela o palpite.
-
-<p align="center">
-  <img src="assets/perguntas.png" width="45%" />
-  <img src="assets/tokensesgotados.png" width="45%" />
-</p>
-
----
-
-### Resultado
-
-Ao final, o gênio revela a imagem de quem estava pensando. Se errar, o jogador pode informar o nome correto.
-
-<p align="center">
-  <img src="assets/teladeresultado.png" width="45%" />
-</p>
-
----
-
-### Perfil
-
-Gerencie foto de perfil e acompanhe suas estatísticas: vitórias, derrotas, taxa de acerto e sequência.
-
-<p align="center">
-  <img src="assets/perfil.png" width="45%" />
-  <img src="assets/fotoperfil.png" width="45%" />
-</p>
-
----
-
-### Comunidade & Ranking
-
-Ranking global por pontuação e feed ao vivo com as partidas recentes da comunidade.
-
-<p align="center">
-  <img src="assets/ranking.png" width="45%" />
-  <img src="assets/comunidade.png" width="45%" />
-</p>
-
----
-
-## 📂 Como rodar
-
-```bash
-# Clone o repositório
-git clone https://github.com/luizedu0494/DecifrAI
-
-# Instale as dependências
-npm install
-
-# Inicie o projeto
-npx expo start
+### 2. Backend — adicionar variáveis de ambiente no Render
+Nas configurações do seu serviço no Render, adicionar:
+```
+SUPABASE_URL=https://xxxx.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=eyJ...  (service_role, não anon!)
+GROQ_API_KEY=gsk_...
+GEMINI_API_KEY=AIza...
 ```
 
----
+### 3. Backend — substituir `index.js`
+Substitua `/backend/index.js` pelo novo arquivo.
+Substitua `/backend/package.json` pelo novo arquivo.
 
-## 👤 Autor
+Rode no Render (ou local para testar):
+```bash
+npm install
+npm start
+```
 
-Feito por **Luiz Eduardo** — [github.com/luizedu0494](https://github.com/luizedu0494)
+### 4. Frontend — substituir serviços
+Substitua os arquivos em `frontend/src/services/`:
+- `groq.ts` → novo (simplificado)
+- `ai.ts` → novo (simplificado)
+- `history.ts` → novo (usa Supabase)
 
----
+Substitua `frontend/src/app/game/result.tsx` → novo (usa `saveGame` do groq.ts).
 
-## 🤖 Uso de Inteligência Artificial
+### 5. Frontend — deletar arquivos não usados
+```
+src/services/gemini.ts          ← deletar
+src/services/aiKnowledge.ts     ← deletar
+src/services/playerPersonalization.ts ← deletar
+src/services/ai_render.ts       ← deletar (substituído pelo novo ai.ts)
+```
 
-Este projeto foi desenvolvido com auxílio de ferramentas de Inteligência Artificial, utilizadas como suporte na criação de lógica, estruturação de código e documentação."# DecifrAI-SQL-" 
-"# DecifrAI-SQL-" 
-"# decifrAI2" 
+### 6. Verificar `.env` do frontend
+O frontend precisa apenas de:
+```
+EXPO_PUBLIC_SUPABASE_URL=https://xxxx.supabase.co
+EXPO_PUBLIC_SUPABASE_ANON_KEY=eyJ...  (anon key — segura no app)
+EXPO_PUBLIC_RENDER_API_URL=https://seu-servico.onrender.com
+```
+
+## Estrutura final
+```
+App → /api/next-question (Render)
+         ├── Agente 1: Estratégia (síncrono)
+         ├── Agente 2: Curadoria (Supabase)
+         ├── Agente 3: Personalização (Supabase)
+         └── Gemini / Groq (com retry automático)
+
+App → /api/save-game (Render)
+         ├── characters (Supabase)
+         ├── question_stats (Supabase)
+         ├── ranking (Supabase)
+         └── feed (Supabase)
+```
