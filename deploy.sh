@@ -62,7 +62,7 @@ DEPLOY_RESPONSE=$(curl -s -X POST \
   "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys" \
   -H "Authorization: Bearer ${RENDER_API_KEY}" \
   -H "Content-Type: application/json" \
-  )
+)
 
 DEPLOY_ID=$(echo "$DEPLOY_RESPONSE" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
 
