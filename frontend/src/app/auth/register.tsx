@@ -37,14 +37,21 @@ export default function Register() {
       router.push('/home');
     } catch (err: any) {
       const msg: string = err?.message ?? '';
+      console.error('[Register] Erro Supabase:', msg, err);
       if (msg.includes('User already registered') || msg.includes('already been registered')) {
         setError('Este e-mail já está em uso.');
       } else if (msg.includes('invalid email') || msg.includes('Invalid email')) {
         setError('E-mail inválido.');
       } else if (msg.includes('Password should be at least')) {
         setError('A senha deve ter pelo menos 6 caracteres.');
+      } else if (msg.includes('Email confirmations') || msg.includes('email not confirmed')) {
+        setError('Confirme seu e-mail antes de entrar.');
+      } else if (msg.includes('fetch') || msg.includes('network') || msg.includes('NetworkError')) {
+        setError('Sem conexão. Verifique sua internet.');
+      } else if (msg.includes('Invalid API key') || msg.includes('apikey') || msg.includes('401')) {
+        setError('Erro de configuração do servidor. Contate o suporte.');
       } else {
-        setError('Erro ao criar conta. Tente novamente.');
+        setError(`Erro: ${msg || 'Tente novamente.'}`);
       }
     } finally {
       setLoading(false);
