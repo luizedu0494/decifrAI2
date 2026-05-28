@@ -18,6 +18,8 @@ export interface RankEntry {
   winRate: number;
   bestStreak: number;
   currentStreak: number;
+  rankPosition: number | null;
+  rankYesterday: number | null;
 }
 
 // Feed e ranking são gerenciados pelo backend via /api/save-game + trigger SQL
@@ -76,7 +78,6 @@ export function subscribeFeed(onNewEntry: (entry: FeedEntry) => void) {
     )
     .subscribe();
 
-  // Retorna cleanup
   return () => {
     supabase.removeChannel(channel);
   };
@@ -105,8 +106,21 @@ export async function loadRanking(limitCount = 10): Promise<RankEntry[]> {
       winRate:       item.win_rate,
       bestStreak:    item.best_streak,
       currentStreak: item.current_streak,
+      rankPosition:  item.rank_position  ?? null,
+      rankYesterday: item.rank_yesterday ?? null,
     }));
   }
+
+  // A view top_players não tem rank_position — busca da tabela ranking em paralelo
+  const uids = (data || []).map(item => item.uid);
+  const { data: rankData } = await supabase
+    .from('ranking')
+    .select('uid, rank_position, rank_yesterday')
+    .in('uid', uids);
+
+  const rankMap = Object.fromEntries(
+    (rankData || []).map(r => [r.uid, r])
+  );
 
   return (data || []).map(item => ({
     uid:           item.uid,
@@ -116,5 +130,7 @@ export async function loadRanking(limitCount = 10): Promise<RankEntry[]> {
     winRate:       item.win_rate,
     bestStreak:    item.best_streak,
     currentStreak: item.current_streak,
+    rankPosition:  rankMap[item.uid]?.rank_position  ?? null,
+    rankYesterday: rankMap[item.uid]?.rank_yesterday ?? null,
   }));
 }

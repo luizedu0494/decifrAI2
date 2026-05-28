@@ -8,6 +8,7 @@ import { colors } from '../styles/global';
 import { socialStyles as s } from '../styles/social';
 import { loadFeed, loadRanking, subscribeFeed, FeedEntry, RankEntry } from '../services/social';
 import { useAuth } from '../contexts/AuthContext';
+import { RankDelta } from '../components/RankDelta';
 
 type Tab = 'feed' | 'ranking';
 
@@ -31,22 +32,20 @@ export default function Social() {
   const [ranking, setRanking]    = useState<RankEntry[]>([]);
   const [loading, setLoading]    = useState(true);
   const [refreshing, setRefresh] = useState(false);
-  const [newCount, setNewCount]  = useState(0); // badge de novos no feed
+  const [newCount, setNewCount]  = useState(0);
 
   useFocusEffect(useCallback(() => {
     loadData();
   }, []));
 
-  // ── Realtime — escuta inserções no feed ──────────────────────────────────────
   useEffect(() => {
     const unsubscribe = subscribeFeed((entry) => {
       setFeed(prev => [entry, ...prev]);
-      if (tab !== 'feed') setNewCount(n => n + 1); // badge quando não está na aba
+      if (tab !== 'feed') setNewCount(n => n + 1);
     });
     return unsubscribe;
   }, [tab]);
 
-  // Zera badge ao entrar na aba feed
   useEffect(() => {
     if (tab === 'feed') setNewCount(0);
   }, [tab]);
@@ -140,38 +139,45 @@ export default function Social() {
                 <Text style={s.emptyText}>Ranking vazio ainda.{'\n'}Complete uma partida para aparecer! 🏆</Text>
               </View>
             ) : (
-              ranking.map((entry, idx) => (
-                <View
-                  key={entry.uid}
-                  style={[s.rankCard, entry.uid === user?.uid && s.rankCardMe]}
-                >
-                  <Text style={s.rankPos}>
-                    {idx < 3 ? MEDALS[idx] : `#${idx + 1}`}
-                  </Text>
+              ranking.map((entry, idx) => {
+                const delta = entry.rankYesterday != null && entry.rankPosition != null
+                  ? entry.rankYesterday - entry.rankPosition
+                  : 0;
 
-                  <View style={[s.rankAvatar, idx === 0 && s.rankAvatarGold]}>
-                    <Text style={s.rankAvatarText}>
-                      {entry.playerName.charAt(0).toUpperCase()}
+                return (
+                  <View
+                    key={entry.uid}
+                    style={[s.rankCard, entry.uid === user?.uid && s.rankCardMe]}
+                  >
+                    <Text style={s.rankPos}>
+                      {idx < 3 ? MEDALS[idx] : `#${idx + 1}`}
                     </Text>
-                  </View>
 
-                  <View style={s.rankInfo}>
-                    <Text style={s.rankName}>
-                      {entry.playerName}
-                      {entry.uid === user?.uid ? ' (você)' : ''}
-                    </Text>
-                    <Text style={s.rankMeta}>
-                      {entry.wins} vitórias · {entry.total} partidas
-                      {entry.currentStreak > 1 ? ` · 🔥${entry.currentStreak}` : ''}
-                    </Text>
-                  </View>
+                    <View style={[s.rankAvatar, idx === 0 && s.rankAvatarGold]}>
+                      <Text style={s.rankAvatarText}>
+                        {entry.playerName.charAt(0).toUpperCase()}
+                      </Text>
+                    </View>
 
-                  <View style={s.rankStats}>
-                    <Text style={s.rankWinRate}>{entry.winRate}%</Text>
-                    <Text style={s.rankWinRateLabel}>acerto</Text>
+                    <View style={s.rankInfo}>
+                      <Text style={s.rankName}>
+                        {entry.playerName}
+                        {entry.uid === user?.uid ? ' (você)' : ''}
+                      </Text>
+                      <Text style={s.rankMeta}>
+                        {entry.wins} vitórias · {entry.total} partidas
+                        {entry.currentStreak > 1 ? ` · 🔥${entry.currentStreak}` : ''}
+                      </Text>
+                    </View>
+
+                    <View style={s.rankStats}>
+                      <Text style={s.rankWinRate}>{entry.winRate}%</Text>
+                      <Text style={s.rankWinRateLabel}>acerto</Text>
+                      <RankDelta delta={delta} size="sm" />
+                    </View>
                   </View>
-                </View>
-              ))
+                );
+              })
             )
           )}
           <View style={{ height: 40 }} />
