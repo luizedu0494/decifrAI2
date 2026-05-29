@@ -335,6 +335,21 @@ app.post('/api/next-question', async (req, res) => {
     const result = await callAI(sessionId, systemPrompt, userMsg);
 
     if (!result) return res.status(500).json({ error: 'Não foi possível gerar resposta' });
+
+    // Garantia final: se a IA chutou antes da pergunta 10, converte em pergunta
+    const validCount = history.filter(h => h.answer !== '__INVALIDA__').length;
+    if (result.isGuess && validCount < 10) {
+      console.warn(`[GUARD] IA tentou chutar na pergunta ${validCount + 1} — bloqueado.`);
+      // Força a IA a fazer outra pergunta sem o contexto de chute
+      const safePrompt = systemPrompt + '
+
+🚨 BLOQUEIO: isGuess:true foi recusado. Você DEVE fazer uma pergunta (isGuess:false). Mapeie mais fatos.';
+      const retry = await callAI(sessionId, safePrompt, userMsg);
+      if (retry && !retry.isGuess) return res.json(retry);
+      // Se ainda insistir em chutar, força uma pergunta genérica segura
+      return res.json({ question: 'É de um país de língua portuguesa?', reaction: 'concentrado', isGuess: false, character: null });
+    }
+
     return res.json(result);
 
   } catch (err) {
