@@ -1,12 +1,12 @@
 import React, { useCallback, useState } from 'react';
 import {
-  View, Text, Image, TouchableOpacity, TextInput,
-  ScrollView, ActivityIndicator, Alert, Platform, Keyboard,
+  View, Text, TouchableOpacity, TextInput,
+  ScrollView, ActivityIndicator, Alert, Keyboard,
 } from 'react-native';
-import * as ImagePicker from 'expo-image-picker';
 import { router, useFocusEffect } from 'expo-router';
 import { useAuth } from '../contexts/AuthContext';
-import { loadProfile, saveProfile, uploadProfilePhoto, loadProfileStats, UserProfile } from '../services/profile';
+import { loadProfile, saveProfile, loadProfileStats, UserProfile } from '../services/profile';
+import { Avatar } from '../components/Avatar';
 import { colors } from '../styles/global';
 import { profileStyles as s } from '../styles/profile';
 
@@ -15,7 +15,6 @@ export default function Profile() {
 
   const [profile, setProfile]       = useState<UserProfile>({ name: '', bio: '', photoBase64: null, avatarUrl: null });
   const [loading, setLoading]       = useState(true);
-  const [saving, setSaving]         = useState(false);
   const [editingName, setEditName]  = useState(false);
   const [editingBio, setEditBio]    = useState(false);
   const [name, setName]             = useState('');
@@ -51,48 +50,6 @@ export default function Profile() {
     // Média de perguntas: busca do histórico local como fallback
     setAvgQ(0);
     setLoading(false);
-  }
-
-  async function pickImage() {
-    Alert.alert('Foto de perfil', 'Escolha uma opção', [
-      { text: 'Cancelar', style: 'cancel' },
-      { text: Platform.OS === 'ios' ? '📷  Tirar foto' : 'Tirar foto',          onPress: () => launchPicker('camera')  },
-      { text: Platform.OS === 'ios' ? '🖼️  Escolher da galeria' : 'Da galeria', onPress: () => launchPicker('library') },
-    ]);
-  }
-
-  async function launchPicker(source: 'camera' | 'library') {
-    const perm = source === 'camera'
-      ? await ImagePicker.requestCameraPermissionsAsync()
-      : await ImagePicker.requestMediaLibraryPermissionsAsync();
-
-    if (!perm.granted) {
-      Alert.alert('Permissão necessária', 'Precisamos de acesso para continuar.');
-      return;
-    }
-
-    const result = source === 'camera'
-      ? await ImagePicker.launchCameraAsync({ allowsEditing: true, aspect: [1, 1], quality: 0.6 })
-      : await ImagePicker.launchImageLibraryAsync({ allowsEditing: true, aspect: [1, 1], quality: 0.6 });
-
-    if (result.canceled || !result.assets[0]) return;
-
-    setSaving(true);
-    try {
-      const uid = user?.id || user?.uid;
-      if (!uid) throw new Error('Usuário não autenticado');
-
-      const url = await uploadProfilePhoto(uid, result.assets[0].uri);
-      if (url) {
-        setProfile(p => ({ ...p, avatarUrl: url }));
-      } else {
-        Alert.alert('Erro', 'Não foi possível fazer upload da foto.');
-      }
-    } catch {
-      Alert.alert('Erro', 'Não foi possível salvar a foto.');
-    } finally {
-      setSaving(false);
-    }
   }
 
   async function saveName() {
@@ -133,7 +90,6 @@ export default function Profile() {
   }
 
   const displayName = profile.name || user?.displayName || 'Jogador';
-  const photoUri    = profile.avatarUrl || null;
 
   return (
     <ScrollView
@@ -149,23 +105,15 @@ export default function Profile() {
         <Text style={s.headerTitle}>Meu perfil</Text>
       </View>
 
-      {/* Avatar clicável */}
-      <TouchableOpacity style={s.avatarWrapper} onPress={pickImage} activeOpacity={0.8}>
-        {saving ? (
-          <View style={[s.avatar, s.avatarPlaceholder]}>
-            <ActivityIndicator color={colors.primary} />
-          </View>
-        ) : photoUri ? (
-          <Image source={{ uri: photoUri }} style={s.avatar} />
-        ) : (
-          <View style={[s.avatar, s.avatarPlaceholder]}>
-            <Text style={s.avatarInitial}>{displayName.charAt(0).toUpperCase()}</Text>
-          </View>
-        )}
-        <View style={s.cameraBtn}>
-          <Text style={s.cameraBtnText}>📷</Text>
-        </View>
-      </TouchableOpacity>
+      {/* Avatar — usa o componente Avatar com upload integrado */}
+      <Avatar
+        userId={user?.id || user?.uid || ''}
+        username={displayName}
+        avatarUrl={profile.avatarUrl}
+        size={100}
+        editable
+        onUpdated={(url) => setProfile(p => ({ ...p, avatarUrl: url }))}
+      />
 
       {/* Nome editável */}
       {editingName ? (

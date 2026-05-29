@@ -212,27 +212,45 @@ async function runCurationAgent(history, category, alreadyGuessed) {
   if (valid.length < 3) return '';
 
   try {
+    // Busca personagens base
     let q = supabase
       .from('characters')
-      .select('id, display_name, category, times_thought, times_guessed, known_facts')
+      .select('id, display_name, category, times_thought, times_guessed')
       .order('times_thought', { ascending: false })
       .limit(80);
 
     if (category) q = q.eq('category', category);
+    const { data: chars } = await q;
+    if (!chars || chars.length === 0) return '';
 
-    const { data } = await q;
-    if (!data || data.length === 0) return '';
+    // Busca fatos com confidence da tabela character_facts
+    const charIds = chars.map(c => c.id);
+    const { data: factsRows } = await supabase
+      .from('character_facts')
+      .select('character_id, question_norm, answer, confidence, sample_size')
+      .in('character_id', charIds);
+
+    // Monta mapa de fatos por personagem com confidence
+    const factsMap = new Map();
+    for (const row of (factsRows || [])) {
+      if (!factsMap.has(row.character_id)) factsMap.set(row.character_id, []);
+      factsMap.get(row.character_id).push(row);
+    }
 
     const guessedLower = new Set(alreadyGuessed.map(n => n.toLowerCase()));
     const candidates = [];
 
-    for (const row of data) {
+    for (const row of chars) {
       if (guessedLower.has((row.display_name || '').toLowerCase())) continue;
       if (category && row.category && row.category !== category) continue;
-      const facts = row.known_facts || {};
-      if (Object.keys(facts).length < 2) continue;
 
-      const match = scoreCandidate({ displayName: row.display_name, knownFacts: facts }, valid);
+      const facts = factsMap.get(row.id) || [];
+      if (facts.length < 2) continue;
+
+      const match = scoreCandidateWithConfidence(
+        { displayName: row.display_name, facts },
+        valid
+      );
       if (match.contradictions <= 1 && match.score > 0) candidates.push(match);
     }
 
@@ -256,6 +274,39 @@ async function runCurationAgent(history, category, alreadyGuessed) {
 }
 
 function normQ(q) { return q.toLowerCase().trim().replace(/\?+$/, '').trim(); }
+
+// Score usando character_facts com confidence e sample_size
+function scoreCandidateWithConfidence(k, history) {
+  const facts = k.facts;
+  let matched = 0, contradictions = 0, weightedScore = 0, totalWeight = 0;
+
+  for (const h of history) {
+    const key = normQ(h.question);
+    const fact = facts.find(f => f.question_norm === key) ||
+                 facts.find(f => {
+                   const words = key.split(' ').filter(w => w.length > 3);
+                   return words.filter(w => f.question_norm.includes(w)).length >= 2;
+                 });
+    if (!fact) continue;
+
+    // Peso baseado em confiança e sample_size — fatos mais confirmados valem mais
+    const weight = Math.min(1, (fact.confidence || 50) / 100) *
+                   Math.min(1, (fact.sample_size || 1) / 5);
+
+    if (answersCompatible(h.answer, fact.answer)) {
+      matched++;
+      weightedScore += weight;
+    } else {
+      contradictions++;
+      weightedScore -= weight * 2;
+    }
+    totalWeight += weight;
+  }
+
+  const base  = totalWeight > 0 ? (weightedScore / totalWeight) * 100 : 0;
+  const score = Math.max(0, Math.round(base));
+  return { displayName: k.displayName, score, matchedFacts: matched, contradictions };
+}
 
 function scoreCandidate(k, history) {
   const facts = k.knownFacts;
@@ -651,7 +702,50 @@ async function saveCharacterKnowledge(characterName, wasGuessed, history) {
     await supabase.from('characters').insert({ id, display_name: characterName, category, times_thought: 1, times_guessed: wasGuessed ? 1 : 0, known_facts: facts });
   }
 
-  // question_stats — upsert em batch (1 query por partida, não N)
+  // ── Salva em character_facts com confidence ────────────────────────────────
+  try {
+    // Busca fatos existentes para este personagem
+    const qNorms = history.map(h => normQ(h.question));
+    const { data: existingFacts } = await supabase
+      .from('character_facts')
+      .select('question_norm, answer, confidence, sample_size')
+      .eq('character_id', id)
+      .in('question_norm', qNorms);
+
+    const existingMap = new Map((existingFacts || []).map(f => [f.question_norm, f]));
+
+    const upserts = history
+      .filter(h => definitive.has(h.answer)) // só fatos definitivos
+      .map(h => {
+        const qn = normQ(h.question);
+        const prev = existingMap.get(qn);
+        const sampleSize = (prev?.sample_size || 0) + 1;
+        // Confiança aumenta se a resposta bate com a anterior, diminui se contradiz
+        let confidence = prev?.confidence || 50;
+        if (prev && answersCompatible(h.answer, prev.answer)) {
+          confidence = Math.min(100, confidence + Math.round(10 / Math.sqrt(sampleSize)));
+        } else if (prev) {
+          confidence = Math.max(10, confidence - 15);
+        } else {
+          confidence = wasGuessed ? 80 : 60; // primeira vez — mais confiança se acertou
+        }
+        return {
+          character_id:  id,
+          question_norm: qn,
+          answer:        h.answer,
+          confidence,
+          sample_size:   sampleSize,
+          updated_at:    new Date().toISOString(),
+        };
+      });
+
+    if (upserts.length > 0) {
+      await supabase.from('character_facts')
+        .upsert(upserts, { onConflict: 'character_id,question_norm' });
+    }
+  } catch (e) { console.error('[character_facts]', e?.message); }
+
+  // ── question_stats — upsert em batch ──────────────────────────────────────
   try {
     const qIds = history.map(h => slugify(h.question));
     const { data: existingStats } = await supabase
