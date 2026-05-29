@@ -78,11 +78,16 @@ function buildPrompt(ctx, history, invalidQuestions) {
     .map((h, i) => `${olderHistory.length + i + 1}. "${h.question}" → ${h.answer}`)
     .join('\n');
 
-  // ── Candidatos ──────────────────────────────────────────────────────────────
+  // ── Candidatos — só sinaliza chute com perguntas suficientes ────────────────
+  const MIN_QUESTIONS_TO_GUESS = 10;  // nunca chuta antes da pergunta 10
+  const canGuessNow = question_count >= MIN_QUESTIONS_TO_GUESS;
+
   const candidatesText = candidates.length > 0
     ? candidates.map((c, i) => {
         const bar  = '█'.repeat(Math.round(c.match_score / 10)) + '░'.repeat(10 - Math.round(c.match_score / 10));
-        const flag = c.match_score >= 85 ? ' ← CHUTE AGORA' : c.match_score >= 70 ? ' ← FORTE' : '';
+        const flag = canGuessNow && c.match_score >= 92 ? ' ← CHUTE AGORA'
+          : canGuessNow && c.match_score >= 80 ? ' ← FORTE'
+          : '';
         return `  ${i+1}. ${c.display_name}: ${bar} ${c.match_score}%${flag}`;
       }).join('\n')
     : '  (banco sem candidatos ainda — continue coletando fatos)';
@@ -113,8 +118,8 @@ function buildPrompt(ctx, history, invalidQuestions) {
     ? '🚨 LIMITE — CHUTE OBRIGATÓRIO AGORA.'
     : question_count >= 16 ? '🚨 CHUTE OBRIGATÓRIO. Não há mais tempo para perguntas.'
     : question_count >= 12 ? '⚠️ Máximo 2 perguntas antes de chutar.'
-    : question_count >= 8  ? 'Perfil suficiente para começar a chutar se score ≥ 80%.'
-    : 'Fase de mapeamento — priorize perguntas que eliminam 50% das possibilidades.';
+    : question_count >= 10 ? 'Pode chutar se score ≥ 92% com país + subárea + conquista confirmados.'
+    : '🔒 FASE DE MAPEAMENTO (perguntas 1-9): PROIBIDO chutar. Colete: gênero → nacionalidade → área → subárea → conquista.';
 
   // ─────────────────────────────────────────────────────────────────────────────
   const systemPrompt =
@@ -319,8 +324,9 @@ app.post('/api/next-question', async (req, res) => {
       top_candidate: null, top_score: 0, question_count: history.length,
     };
 
-    // Chute forçado direto sem IA
-    if (context.force_guess && context.top_candidate && context.top_score >= 60) {
+    // Chute forçado direto sem IA — mínimo 10 perguntas E score alto
+    const questionCount = history.filter(h => h.answer !== '__INVALIDA__').length;
+    if (context.force_guess && context.top_candidate && context.top_score >= 85 && questionCount >= 10) {
       const name = context.top_candidate.display_name;
       return res.json({ question: `É ${name}?`, reaction: 'confiante', isGuess: true, character: name });
     }
